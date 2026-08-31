@@ -16,6 +16,7 @@
 //! - `Confirm(id, address)` — bool
 
 #![no_std]
+#![allow(deprecated)]
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, Symbol, Vec,

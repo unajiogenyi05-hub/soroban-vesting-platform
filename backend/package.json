@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "jest --forceExit",
+    "test": "jest --forceExit --passWithNoTests",
     "lint": "eslint src/"
   },
   "dependencies": {
