@@ -114,7 +114,7 @@ impl VestingContract {
         let tk = token::Client::new(&env, &params.token_address);
         tk.transfer(
             &params.from,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &params.total_amount,
         );
 
@@ -193,7 +193,7 @@ impl VestingContract {
 
         let tk = token::Client::new(&env, &schedule.token);
         tk.transfer(
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &schedule.beneficiary,
             &claimable,
         );
@@ -231,7 +231,7 @@ impl VestingContract {
 
         if unvested > 0 {
             let tk = token::Client::new(&env, &schedule.token);
-            tk.transfer(&env.current_contract_address(), &recipient, &unvested);
+            tk.transfer(env.current_contract_address(), &recipient, &unvested);
         }
 
         env.events()
