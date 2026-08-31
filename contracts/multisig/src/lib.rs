@@ -82,7 +82,7 @@ impl MultisigContract {
         if owners.is_empty() {
             panic!("need at least one owner");
         }
-        if threshold == 0 || threshold > owners.len() as u32 {
+        if threshold == 0 || threshold > owners.len() {
             panic!("invalid threshold");
         }
         env.storage().instance().set(&OWNERS, &owners);
@@ -263,7 +263,7 @@ impl MultisigContract {
         let mut owners: Vec<Address> = env.storage().instance().get(&OWNERS).unwrap();
         let threshold: u32 = env.storage().instance().get(&THRESHOLD).unwrap();
 
-        if owners.len() as u32 <= threshold {
+        if owners.len() <= threshold {
             panic!("cannot remove: would breach threshold");
         }
 
@@ -282,7 +282,7 @@ impl MultisigContract {
     /// Update the confirmation threshold.
     pub fn update_threshold(env: Env, new_threshold: u32) {
         let owners: Vec<Address> = env.storage().instance().get(&OWNERS).unwrap();
-        if new_threshold == 0 || new_threshold > owners.len() as u32 {
+        if new_threshold == 0 || new_threshold > owners.len() {
             panic!("invalid threshold");
         }
         env.storage().instance().set(&THRESHOLD, &new_threshold);
