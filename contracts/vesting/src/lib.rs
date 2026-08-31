@@ -190,8 +190,10 @@ impl VestingContract {
             &claimable,
         );
 
-        env.events()
-            .publish((EVT_CLAIMED,), (schedule_id, schedule.beneficiary, claimable));
+        env.events().publish(
+            (EVT_CLAIMED,),
+            (schedule_id, schedule.beneficiary, claimable),
+        );
 
         claimable
     }
@@ -280,7 +282,10 @@ impl VestingContract {
     }
 
     pub fn get_admin(env: Env) -> Address {
-        env.storage().instance().get(&ADMIN).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&ADMIN)
+            .expect("not initialized")
     }
 
     pub fn is_paused(env: Env) -> bool {
@@ -360,7 +365,9 @@ mod tests {
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
 
         // Get token address from storage (simplification: re-register)
-        let token_address = env.register_stellar_asset_contract_v2(funder.clone()).address();
+        let token_address = env
+            .register_stellar_asset_contract_v2(funder.clone())
+            .address();
         let asset_client = StellarAssetClient::new(&env, &token_address);
         asset_client.mint(&funder, &100_000);
 
@@ -373,8 +380,8 @@ mod tests {
             &token_address,
             &100_000,
             &start,
-            &0,        // no cliff
-            &100,      // 100-second vesting window
+            &0,   // no cliff
+            &100, // 100-second vesting window
         );
 
         // Advance time to 50% through vesting
@@ -396,7 +403,9 @@ mod tests {
     fn test_cliff_blocks_early_claim() {
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
 
-        let token_address = env.register_stellar_asset_contract_v2(funder.clone()).address();
+        let token_address = env
+            .register_stellar_asset_contract_v2(funder.clone())
+            .address();
         let asset_client = StellarAssetClient::new(&env, &token_address);
         asset_client.mint(&funder, &100_000);
 
@@ -409,7 +418,7 @@ mod tests {
             &token_address,
             &100_000,
             &start,
-            &50,   // 50-second cliff
+            &50, // 50-second cliff
             &100,
         );
 
@@ -428,7 +437,9 @@ mod tests {
     fn test_revoke_returns_unvested() {
         let (env, vesting_id, admin, beneficiary, funder) = setup();
 
-        let token_address = env.register_stellar_asset_contract_v2(funder.clone()).address();
+        let token_address = env
+            .register_stellar_asset_contract_v2(funder.clone())
+            .address();
         let asset_client = StellarAssetClient::new(&env, &token_address);
         asset_client.mint(&funder, &100_000);
 
@@ -456,7 +467,9 @@ mod tests {
     fn test_pause_blocks_claim() {
         let (env, vesting_id, admin, beneficiary, funder) = setup();
 
-        let token_address = env.register_stellar_asset_contract_v2(funder.clone()).address();
+        let token_address = env
+            .register_stellar_asset_contract_v2(funder.clone())
+            .address();
         let asset_client = StellarAssetClient::new(&env, &token_address);
         asset_client.mint(&funder, &100_000);
 

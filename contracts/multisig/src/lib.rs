@@ -133,7 +133,12 @@ impl MultisigContract {
         }
 
         let key = DataKey::Confirm(proposal_id, owner.clone());
-        if env.storage().persistent().get::<DataKey, bool>(&key).unwrap_or(false) {
+        if env
+            .storage()
+            .persistent()
+            .get::<DataKey, bool>(&key)
+            .unwrap_or(false)
+        {
             panic!("already confirmed");
         }
 
@@ -143,8 +148,7 @@ impl MultisigContract {
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
 
-        env.events()
-            .publish((EVT_CONFIRMED,), (proposal_id, owner));
+        env.events().publish((EVT_CONFIRMED,), (proposal_id, owner));
     }
 
     /// Revoke own confirmation from a pending proposal.
@@ -163,7 +167,12 @@ impl MultisigContract {
         }
 
         let key = DataKey::Confirm(proposal_id, owner.clone());
-        if !env.storage().persistent().get::<DataKey, bool>(&key).unwrap_or(false) {
+        if !env
+            .storage()
+            .persistent()
+            .get::<DataKey, bool>(&key)
+            .unwrap_or(false)
+        {
             panic!("not confirmed");
         }
 
@@ -173,8 +182,7 @@ impl MultisigContract {
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
 
-        env.events()
-            .publish((EVT_REVOKED,), (proposal_id, owner));
+        env.events().publish((EVT_REVOKED,), (proposal_id, owner));
     }
 
     /// Execute a proposal once threshold is met.
@@ -289,7 +297,10 @@ impl MultisigContract {
     }
 
     pub fn get_owners(env: Env) -> Vec<Address> {
-        env.storage().instance().get(&OWNERS).unwrap_or(Vec::new(&env))
+        env.storage()
+            .instance()
+            .get(&OWNERS)
+            .unwrap_or(Vec::new(&env))
     }
 
     pub fn get_threshold(env: Env) -> u32 {
@@ -308,14 +319,22 @@ impl MultisigContract {
     }
 
     pub fn is_owner(env: Env, address: Address) -> bool {
-        let owners: Vec<Address> = env.storage().instance().get(&OWNERS).unwrap_or(Vec::new(&env));
+        let owners: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&OWNERS)
+            .unwrap_or(Vec::new(&env));
         owners.iter().any(|o| o == address)
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
 
     fn require_owner(env: &Env, address: &Address) {
-        let owners: Vec<Address> = env.storage().instance().get(&OWNERS).unwrap_or(Vec::new(env));
+        let owners: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&OWNERS)
+            .unwrap_or(Vec::new(env));
         if !owners.iter().any(|o| o == *address) {
             panic!("not an owner");
         }

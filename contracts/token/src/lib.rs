@@ -117,11 +117,7 @@ impl TokenContract {
         Self::require_not_paused(&env);
 
         let allow_key = DataKey::Allowance(from.clone(), spender.clone());
-        let allowance: i128 = env
-            .storage()
-            .persistent()
-            .get(&allow_key)
-            .unwrap_or(0);
+        let allowance: i128 = env.storage().persistent().get(&allow_key).unwrap_or(0);
         if allowance < amount {
             panic!("allowance exceeded");
         }
@@ -130,8 +126,7 @@ impl TokenContract {
             .set(&allow_key, &(allowance - amount));
 
         Self::_transfer(&env, &from, &to, amount);
-        env.events()
-            .publish((EVT_TRANSFER,), (from, to, amount));
+        env.events().publish((EVT_TRANSFER,), (from, to, amount));
     }
 
     // ── Allowances ──────────────────────────────────────────────────────────
@@ -145,7 +140,8 @@ impl TokenContract {
         env.storage()
             .persistent()
             .set(&DataKey::Allowance(owner.clone(), spender.clone()), &amount);
-        env.events().publish((EVT_APPROVE,), (owner, spender, amount));
+        env.events()
+            .publish((EVT_APPROVE,), (owner, spender, amount));
     }
 
     // ── Pause ───────────────────────────────────────────────────────────────
@@ -173,11 +169,17 @@ impl TokenContract {
     // ── Metadata reads ──────────────────────────────────────────────────────
 
     pub fn name(env: Env) -> String {
-        env.storage().instance().get(&NAME).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&NAME)
+            .expect("not initialized")
     }
 
     pub fn symbol(env: Env) -> String {
-        env.storage().instance().get(&SYMBOL_KEY).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&SYMBOL_KEY)
+            .expect("not initialized")
     }
 
     pub fn decimals(env: Env) -> u32 {
@@ -204,13 +206,20 @@ impl TokenContract {
     }
 
     pub fn admin(env: Env) -> Address {
-        env.storage().instance().get(&ADMIN).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&ADMIN)
+            .expect("not initialized")
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
-        let admin: Address = env.storage().instance().get(&ADMIN).expect("not initialized");
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .expect("not initialized");
         admin.require_auth();
     }
 
