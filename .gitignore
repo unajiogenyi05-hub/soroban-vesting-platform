@@ -1,0 +1,29 @@
+# Rust / Cargo
+target/
+Cargo.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+backend/node_modules/
+
+# Logs
+*.log
+logs/
+
+# Stellar CLI
+.stellar/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

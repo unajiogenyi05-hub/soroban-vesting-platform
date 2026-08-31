@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Soroban Vesting Platform</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header class="header" role="banner">
+    <div class="header__inner">
+      <div class="header__brand">
+        <span class="header__logo" aria-hidden="true">◈</span>
+        <span class="header__title">Soroban Vesting</span>
+        <span class="header__badge" id="networkBadge">Testnet</span>
+      </div>
+      <nav class="header__nav" role="navigation" aria-label="Main navigation">
+        <button class="nav-btn active" data-tab="dashboard" aria-selected="true">Dashboard</button>
+        <button class="nav-btn" data-tab="vesting" aria-selected="false">Vesting</button>
+        <button class="nav-btn" data-tab="token" aria-selected="false">Token</button>
+        <button class="nav-btn" data-tab="multisig" aria-selected="false">Multisig</button>
+      </nav>
+      <div class="header__status">
+        <span class="status-dot" id="apiStatusDot" aria-hidden="true"></span>
+        <span id="apiStatusText">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────────────────────── -->
+  <main class="main" id="main" role="main">
+
+    <!-- Dashboard tab -->
+    <section class="tab-panel" id="tab-dashboard" aria-label="Dashboard">
+      <h1 class="page-title">Overview</h1>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-card__label">Total Schedules</span>
+          <span class="stat-card__value" id="statSchedules">—</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">Token Supply</span>
+          <span class="stat-card__value" id="statSupply">—</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">Proposals</span>
+          <span class="stat-card__value" id="statProposals">—</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-card__label">API Status</span>
+          <span class="stat-card__value" id="statApi">—</span>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Quick Start</h2>
+        <ol class="quickstart-list">
+          <li>Clone the repo and copy <code>.env.example</code> → <code>backend/.env</code></li>
+          <li>Set your <code>VESTING_CONTRACT_ID</code>, <code>TOKEN_CONTRACT_ID</code>, <code>MULTISIG_CONTRACT_ID</code></li>
+          <li>Run <code>make build</code> to compile the contracts</li>
+          <li>Run <code>make deploy-testnet</code> to deploy</li>
+          <li>Start the backend: <code>cd backend &amp;&amp; npm install &amp;&amp; npm start</code></li>
+          <li>Open this dashboard and start interacting!</li>
+        </ol>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Contract Addresses</h2>
+        <div class="address-grid">
+          <div class="address-row">
+            <span class="address-label">Vesting</span>
+            <input class="address-input" id="vestingContractId" type="text"
+              placeholder="C…" aria-label="Vesting contract ID" />
+          </div>
+          <div class="address-row">
+            <span class="address-label">Token</span>
+            <input class="address-input" id="tokenContractId" type="text"
+              placeholder="C…" aria-label="Token contract ID" />
+          </div>
+          <div class="address-row">
+            <span class="address-label">Multisig</span>
+            <input class="address-input" id="multisigContractId" type="text"
+              placeholder="C…" aria-label="Multisig contract ID" />
+          </div>
+        </div>
+        <button class="btn btn--primary" id="saveAddresses">Save &amp; Refresh</button>
+      </div>
+    </section>
+
+    <!-- Vesting tab -->
+    <section class="tab-panel hidden" id="tab-vesting" aria-label="Vesting">
+      <h1 class="page-title">Token Vesting</h1>
+
+      <!-- Create schedule -->
+      <div class="section-card">
+        <h2 class="section-card__title">Create Schedule</h2>
+        <form id="createScheduleForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="cs-from">Funder Address</label>
+            <input class="form-input" id="cs-from" type="text" placeholder="G…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="cs-beneficiary">Beneficiary</label>
+            <input class="form-input" id="cs-beneficiary" type="text" placeholder="G…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="cs-token">Token Address</label>
+            <input class="form-input" id="cs-token" type="text" placeholder="C…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="cs-amount">Total Amount</label>
+            <input class="form-input" id="cs-amount" type="number" min="1" placeholder="1000000" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="cs-cliff">Cliff (seconds)</label>
+            <input class="form-input" id="cs-cliff" type="number" min="0" value="0" />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="cs-duration">Total Duration (seconds)</label>
+            <input class="form-input" id="cs-duration" type="number" min="1" placeholder="2592000" required />
+          </div>
+          <button type="submit" class="btn btn--primary">Create Schedule</button>
+          <div class="form-result" id="createScheduleResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <!-- Check claimable -->
+      <div class="section-card">
+        <h2 class="section-card__title">Check &amp; Claim</h2>
+        <form id="claimForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="claim-id">Schedule ID</label>
+            <input class="form-input" id="claim-id" type="number" min="1" placeholder="1" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="claim-beneficiary">Beneficiary</label>
+            <input class="form-input" id="claim-beneficiary" type="text" placeholder="G…" required />
+          </div>
+          <div class="btn-group">
+            <button type="button" class="btn btn--secondary" id="checkClaimableBtn">Check Claimable</button>
+            <button type="submit" class="btn btn--primary">Claim</button>
+          </div>
+          <div class="form-result" id="claimResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <!-- Revoke schedule -->
+      <div class="section-card">
+        <h2 class="section-card__title">Revoke Schedule (Admin)</h2>
+        <form id="revokeForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="revoke-id">Schedule ID</label>
+            <input class="form-input" id="revoke-id" type="number" min="1" placeholder="1" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="revoke-recipient">Return Recipient</label>
+            <input class="form-input" id="revoke-recipient" type="text" placeholder="G…" required />
+          </div>
+          <button type="submit" class="btn btn--danger">Revoke</button>
+          <div class="form-result" id="revokeResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Token tab -->
+    <section class="tab-panel hidden" id="tab-token" aria-label="Token">
+      <h1 class="page-title">Token Management</h1>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Token Info</h2>
+        <button class="btn btn--secondary" id="loadTokenInfoBtn">Load Info</button>
+        <div class="info-grid" id="tokenInfoGrid"></div>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Check Balance</h2>
+        <form id="balanceForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="bal-addr">Address</label>
+            <input class="form-input" id="bal-addr" type="text" placeholder="G…" required />
+          </div>
+          <button type="submit" class="btn btn--secondary">Check</button>
+          <div class="form-result" id="balanceResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Mint (Admin)</h2>
+        <form id="mintForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="mint-to">To Address</label>
+            <input class="form-input" id="mint-to" type="text" placeholder="G…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="mint-amount">Amount</label>
+            <input class="form-input" id="mint-amount" type="number" min="1" required />
+          </div>
+          <button type="submit" class="btn btn--primary">Mint</button>
+          <div class="form-result" id="mintResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Transfer</h2>
+        <form id="transferForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="tf-from">From</label>
+            <input class="form-input" id="tf-from" type="text" placeholder="G…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="tf-to">To</label>
+            <input class="form-input" id="tf-to" type="text" placeholder="G…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="tf-amount">Amount</label>
+            <input class="form-input" id="tf-amount" type="number" min="1" required />
+          </div>
+          <button type="submit" class="btn btn--primary">Transfer</button>
+          <div class="form-result" id="transferResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Multisig tab -->
+    <section class="tab-panel hidden" id="tab-multisig" aria-label="Multisig Governance">
+      <h1 class="page-title">Multisig Governance</h1>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Submit Proposal</h2>
+        <form id="submitProposalForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="prop-proposer">Proposer</label>
+            <input class="form-input" id="prop-proposer" type="text" placeholder="G…" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="prop-desc">Description</label>
+            <textarea class="form-input form-textarea" id="prop-desc" rows="3"
+              placeholder="Describe the governance action…" required></textarea>
+          </div>
+          <button type="submit" class="btn btn--primary">Submit</button>
+          <div class="form-result" id="proposalResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Confirm / Revoke</h2>
+        <form id="confirmForm" class="form" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="conf-id">Proposal ID</label>
+            <input class="form-input" id="conf-id" type="number" min="1" required />
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="conf-owner">Owner Address</label>
+            <input class="form-input" id="conf-owner" type="text" placeholder="G…" required />
+          </div>
+          <div class="btn-group">
+            <button type="button" class="btn btn--primary" id="confirmBtn">Confirm</button>
+            <button type="button" class="btn btn--secondary" id="revokeConfirmBtn">Revoke Confirm</button>
+            <button type="button" class="btn btn--primary" id="executeBtn">Execute</button>
+          </div>
+          <div class="form-result" id="confirmResult" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+
+      <div class="section-card">
+        <h2 class="section-card__title">Owners</h2>
+        <button class="btn btn--secondary" id="loadOwnersBtn">Load Owners</button>
+        <ul class="owners-list" id="ownersList" aria-label="Owner addresses"></ul>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Toast ──────────────────────────────────────────────────────────── -->
+  <div class="toast-container" id="toastContainer" aria-live="assertive" aria-atomic="true"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
