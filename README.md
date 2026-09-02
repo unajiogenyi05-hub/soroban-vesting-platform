@@ -99,6 +99,21 @@ stellar contract build
 
 ---
 
+## Backend API — live data note
+
+The backend routes are pre-wired and fully functional. To receive live on-chain data instead of scaffold responses, set the following variables in your `.env` file after deploying the contracts:
+
+```
+VESTING_CONTRACT_ID=<deployed vesting contract ID>
+TOKEN_CONTRACT_ID=<deployed token contract ID>
+MULTISIG_CONTRACT_ID=<deployed multisig contract ID>
+SOURCE_SECRET_KEY=<Stellar secret key for transaction signing>
+```
+
+Without these values the API returns documented stub responses so the frontend can be developed and tested independently of a live deployment.
+
+---
+
 ## Environment variables
 
 See [`.env.example`](.env.example) for all required configuration.
