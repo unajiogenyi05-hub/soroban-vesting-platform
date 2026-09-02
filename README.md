@@ -3,6 +3,7 @@
 A production-ready token vesting platform built on the [Stellar](https://stellar.org) network using [Soroban](https://soroban.stellar.org) smart contracts.
 
 [![CI](https://github.com/unajiogenyi05-hub/soroban-vesting-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/unajiogenyi05-hub/soroban-vesting-platform/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -17,6 +18,9 @@ A production-ready token vesting platform built on the [Stellar](https://stellar
 | `frontend/` | Single-page UI for managing vesting schedules |
 | `scripts/` | Deploy, invoke, and fund helper scripts |
 | `.github/workflows/ci.yml` | CI: fmt, clippy, test, build on every push/PR |
+| `CHANGELOG.md` | Project changelog following Keep-a-Changelog |
+| `SECURITY.md` | Vulnerability disclosure policy and security architecture |
+| `docs/architecture.md` | Platform architecture documentation |
 
 ---
 
@@ -35,7 +39,9 @@ Linear token vesting with:
 - `create_schedule` — lock tokens for a beneficiary with cliff + linear release
 - `claim` — beneficiary claims currently vested tokens
 - `revoke` — admin returns unvested tokens
+- `pause` / `unpause` — emergency contract freeze
 - `get_claimable` — read how many tokens are available to claim
+- `transfer_admin` — transfer admin role to a new address
 
 ### Multisig (`contracts/multisig/`)
 N-of-M governance wallet:
@@ -50,7 +56,7 @@ N-of-M governance wallet:
 | Tool | Install |
 |------|---------|
 | Rust (stable) | [rustup.rs](https://rustup.rs) |
-| stellar-cli | `curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh \| sh` |
+| stellar-cli | `curl -sSfL https://install.stellar.org \| sh` |
 | Node.js ≥ 18 | [nodejs.org](https://nodejs.org) |
 
 ---
@@ -117,6 +123,12 @@ Without these values the API returns documented stub responses so the frontend c
 ## Environment variables
 
 See [`.env.example`](.env.example) for all required configuration.
+
+---
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy and security architecture notes.
 
 ---
 
