@@ -9,7 +9,7 @@
 //! # Schedule lifecycle
 //! ```text
 //!  created → [cliff] → linear release → fully_vested
-//!                                      ↑ revoke stops here
+//!                                   ↑ revoke stops here
 //! ```
 
 #![no_std]
@@ -20,13 +20,13 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, token, Address, Env, Symbol, Vec,
 };
 
-// ─── Storage keys ────────────────────────────────────────────────────────────
+// ─── Storage keys ───────────────────────────────────────────────────────────
 
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const PAUSED: Symbol = symbol_short!("PAUSED");
 const SCHED_ID: Symbol = symbol_short!("SCHED_ID");
 
-// ─── Data types ──────────────────────────────────────────────────────────────
+// ─── Data types ────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
@@ -77,7 +77,7 @@ const EVT_REVOKED: Symbol = symbol_short!("revoked");
 const EVT_PAUSED: Symbol = symbol_short!("paused");
 const EVT_UNPAUSED: Symbol = symbol_short!("unpaused");
 
-// ─── Contract ────────────────────────────────────────────────────────────────
+// ─── Contract ──────────────────────────────────────────────────────────────
 
 #[contract]
 pub struct VestingContract;
@@ -95,7 +95,7 @@ impl VestingContract {
         env.storage().instance().set(&SCHED_ID, &0u64);
     }
 
-    // ── Schedule management ─────────────────────────────────────────────────
+    // ── Schedule management ──────────────────────────────────────────────────
 
     /// Create a new vesting schedule. Caller must be admin.
     pub fn create_schedule(env: Env, params: CreateScheduleParams) -> u64 {
@@ -241,7 +241,7 @@ impl VestingContract {
         unvested
     }
 
-    // ── Pause ───────────────────────────────────────────────────────────────
+    // ── Pause ────────────────────────────────────────────────────────────
 
     pub fn pause(env: Env) {
         Self::require_admin(&env);
@@ -263,7 +263,7 @@ impl VestingContract {
         env.storage().instance().set(&ADMIN, &new_admin);
     }
 
-    // ── Read functions ──────────────────────────────────────────────────────
+    // ── Read functions ─────────────────────────────────────────────────────
 
     pub fn get_schedule(env: Env, schedule_id: u64) -> VestingSchedule {
         env.storage()
@@ -304,7 +304,7 @@ impl VestingContract {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
 
-    // ── Internal helpers ────────────────────────────────────────────────────
+    // ── Internal helpers ─────────────────────────────────────────────────────
 
     fn require_admin(env: &Env) {
         let admin: Address = env
@@ -342,6 +342,8 @@ mod tests {
     use soroban_sdk::testutils::{Address as _, Ledger};
     use soroban_sdk::{token::StellarAssetClient, Env};
 
+    // ── helpers ──────────────────────────────────────────────────────────────
+
     fn setup() -> (Env, Address, Address, Address, Address) {
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -363,23 +365,27 @@ mod tests {
         (env, vesting_id, admin, beneficiary, funder)
     }
 
+    /// Deploy a fresh token, mint `amount` to `funder`, return token address.
+    fn new_token(env: &Env, funder: &Address, amount: i128) -> Address {
+        let token_id = env.register_stellar_asset_contract_v2(funder.clone());
+        let addr = token_id.address();
+        StellarAssetClient::new(env, &addr).mint(funder, &amount);
+        addr
+    }
+
+    // ── basic create + claim ─────────────────────────────────────────────────
+
     #[test]
     fn test_create_and_claim() {
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
-
-        let token_address = env
-            .register_stellar_asset_contract_v2(funder.clone())
-            .address();
-        let asset_client = StellarAssetClient::new(&env, &token_address);
-        asset_client.mint(&funder, &100_000);
-
+        let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
         let start = env.ledger().timestamp();
 
         let id = vesting.create_schedule(&CreateScheduleParams {
             from: funder.clone(),
             beneficiary: beneficiary.clone(),
-            token_address: token_address.clone(),
+            token_address: token.clone(),
             total_amount: 100_000,
             start_time: start,
             cliff_duration: 0,
@@ -397,53 +403,104 @@ mod tests {
         assert_eq!(claimed2, 50_000);
     }
 
+    // ── cliff blocks early claim, unlocks after cliff ────────────────────────
+
     #[test]
     fn test_cliff_blocks_early_claim() {
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
-
-        let token_address = env
-            .register_stellar_asset_contract_v2(funder.clone())
-            .address();
-        let asset_client = StellarAssetClient::new(&env, &token_address);
-        asset_client.mint(&funder, &100_000);
-
+        let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
         let start = env.ledger().timestamp();
 
         let id = vesting.create_schedule(&CreateScheduleParams {
             from: funder.clone(),
             beneficiary: beneficiary.clone(),
-            token_address: token_address.clone(),
+            token_address: token,
             total_amount: 100_000,
             start_time: start,
             cliff_duration: 50,
             total_duration: 100,
         });
 
+        // Before cliff: nothing claimable
         env.ledger().with_mut(|l| l.timestamp = start + 30);
         assert_eq!(vesting.get_claimable(&id), 0);
 
+        // Exactly at cliff: linear vesting has been running since start, not since cliff
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        // elapsed=50, total_duration=100 -> 50% = 50_000
+        assert_eq!(vesting.get_claimable(&id), 50_000);
+
+        // After cliff
         env.ledger().with_mut(|l| l.timestamp = start + 75);
-        assert!(vesting.get_claimable(&id) > 0);
+        assert!(vesting.get_claimable(&id) > 50_000);
     }
 
+    // ── zero cliff: immediate linear vesting ─────────────────────────────────
+
     #[test]
-    fn test_revoke_returns_unvested() {
-        let (env, vesting_id, admin, beneficiary, funder) = setup();
-
-        let token_address = env
-            .register_stellar_asset_contract_v2(funder.clone())
-            .address();
-        let asset_client = StellarAssetClient::new(&env, &token_address);
-        asset_client.mint(&funder, &100_000);
-
+    fn test_zero_cliff_immediate_vesting() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 1_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
         let start = env.ledger().timestamp();
 
         let id = vesting.create_schedule(&CreateScheduleParams {
             from: funder.clone(),
             beneficiary: beneficiary.clone(),
-            token_address: token_address.clone(),
+            token_address: token,
+            total_amount: 1_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 1_000,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 1);
+        assert_eq!(vesting.get_claimable(&id), 1);
+    }
+
+    // ── full vest after duration ends ────────────────────────────────────────
+
+    #[test]
+    fn test_full_vest_after_duration() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 500_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 500_000,
+            start_time: start,
+            cliff_duration: 100,
+            total_duration: 200,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 300); // well past end
+        assert_eq!(vesting.get_claimable(&id), 500_000);
+
+        let claimed = vesting.claim(&id);
+        assert_eq!(claimed, 500_000);
+
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Completed);
+    }
+
+    // ── revoke returns unvested tokens ───────────────────────────────────────
+
+    #[test]
+    fn test_revoke_returns_unvested() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
             total_amount: 100_000,
             start_time: start,
             cliff_duration: 0,
@@ -453,26 +510,97 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 25);
         let returned = vesting.revoke(&id, &admin);
         assert_eq!(returned, 75_000);
+
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
     }
 
+    // ── claim after revoke must panic ────────────────────────────────────────
+
     #[test]
-    #[should_panic(expected = "contract is paused")]
-    fn test_pause_blocks_claim() {
+    #[should_panic(expected = "schedule is not active")]
+    fn test_claim_after_revoke_panics() {
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let admin = Address::generate(&env);
+        let start = env.ledger().timestamp();
 
-        let token_address = env
-            .register_stellar_asset_contract_v2(funder.clone())
-            .address();
-        let asset_client = StellarAssetClient::new(&env, &token_address);
-        asset_client.mint(&funder, &100_000);
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
 
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.revoke(&id, &admin);
+        vesting.claim(&id); // must panic
+    }
+
+    // ── nothing to claim before cliff ────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "nothing to claim")]
+    fn test_claim_before_cliff_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
         let start = env.ledger().timestamp();
 
         let id = vesting.create_schedule(&CreateScheduleParams {
             from: funder.clone(),
             beneficiary: beneficiary.clone(),
-            token_address: token_address.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 100,
+            total_duration: 200,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50); // before cliff
+        vesting.claim(&id);
+    }
+
+    // ── pause blocks create_schedule ─────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "contract is paused")]
+    fn test_pause_blocks_create_schedule() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        vesting.pause();
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+    }
+
+    // ── pause blocks claim ───────────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "contract is paused")]
+    fn test_pause_blocks_claim() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
             total_amount: 100_000,
             start_time: start,
             cliff_duration: 0,
@@ -482,5 +610,214 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         vesting.pause();
         vesting.claim(&id);
+    }
+
+    // ── unpause restores functionality ───────────────────────────────────────
+
+    #[test]
+    fn test_unpause_restores_claim() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.pause();
+        vesting.unpause();
+        let claimed = vesting.claim(&id);
+        assert_eq!(claimed, 50_000);
+    }
+
+    // ── transfer_admin ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_transfer_admin() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+
+        vesting.transfer_admin(&new_admin);
+        assert_eq!(vesting.get_admin(), new_admin);
+    }
+
+    // ── schedule_count increments ────────────────────────────────────────────
+
+    #[test]
+    fn test_schedule_count() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        assert_eq!(vesting.schedule_count(), 0);
+
+        let token = new_token(&env, &funder, 200_000);
+        let start = env.ledger().timestamp();
+
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        assert_eq!(vesting.schedule_count(), 1);
+
+        let b2 = Address::generate(&env);
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: b2.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        assert_eq!(vesting.schedule_count(), 2);
+    }
+
+    // ── multiple beneficiaries have independent schedules ────────────────────
+
+    #[test]
+    fn test_multiple_beneficiaries() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let b2 = Address::generate(&env);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: b2.clone(),
+            token_address: token.clone(),
+            total_amount: 200_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 200,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        // beneficiary1: fully vested (100_000)
+        assert_eq!(vesting.get_claimable(&id1), 100_000);
+        // beneficiary2: only 50% (100_000)
+        assert_eq!(vesting.get_claimable(&id2), 100_000);
+
+        // beneficiary_schedules returns the right IDs
+        let ids1 = vesting.get_beneficiary_schedules(&beneficiary);
+        assert_eq!(ids1.len(), 1);
+        assert_eq!(ids1.get(0).unwrap(), id1);
+
+        let ids2 = vesting.get_beneficiary_schedules(&b2);
+        assert_eq!(ids2.len(), 1);
+        assert_eq!(ids2.get(0).unwrap(), id2);
+    }
+
+    // ── beneficiary_schedules accumulates multiple schedules ─────────────────
+
+    #[test]
+    fn test_beneficiary_schedules_multiple() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 200,
+        });
+        let id3 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 50,
+            total_duration: 300,
+        });
+
+        let ids = vesting.get_beneficiary_schedules(&beneficiary);
+        assert_eq!(ids.len(), 3);
+        assert_eq!(ids.get(0).unwrap(), id1);
+        assert_eq!(ids.get(1).unwrap(), id2);
+        assert_eq!(ids.get(2).unwrap(), id3);
+    }
+
+    // ── double-revoke must panic ──────────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "schedule is not active")]
+    fn test_double_revoke_panics() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        vesting.revoke(&id, &admin);
+        vesting.revoke(&id, &admin); // must panic
+    }
+
+    // ── is_paused reflects state correctly ───────────────────────────────────
+
+    #[test]
+    fn test_is_paused_state() {
+        let (env, vesting_id, _admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        assert!(!vesting.is_paused());
+        vesting.pause();
+        assert!(vesting.is_paused());
+        vesting.unpause();
+        assert!(!vesting.is_paused());
+    }
+
+    // ── double initialize must panic ─────────────────────────────────────────
+
+    #[test]
+    #[should_panic(expected = "already initialized")]
+    fn test_double_initialize_panics() {
+        let (env, vesting_id, admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.initialize(&admin); // second call must panic
     }
 }
