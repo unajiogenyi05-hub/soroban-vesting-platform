@@ -1,4 +1,4 @@
-# EMMY_CHANGELOG.md
+# UPDATED_CHANGELOG.md
 
 This file is the single source of truth for all changes made during the
 Stellar Wave Program appeal audit. Entries are append-only and dated.
