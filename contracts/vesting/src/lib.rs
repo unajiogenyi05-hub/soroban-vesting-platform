@@ -380,8 +380,7 @@ impl VestingContract {
             return schedule.total_amount;
         }
         // saturating_mul prevents i128 overflow for very large amounts × elapsed.
-        i128::from(elapsed)
-            .saturating_mul(schedule.total_amount)
+        i128::from(elapsed).saturating_mul(schedule.total_amount)
             / i128::from(schedule.total_duration)
     }
 }
@@ -1068,8 +1067,7 @@ mod tests {
             total_duration: 1_000_000_000, // ~31 years in seconds
         });
 
-        env.ledger()
-            .with_mut(|l| l.timestamp = start + 500_000_000);
+        env.ledger().with_mut(|l| l.timestamp = start + 500_000_000);
         // Should return exactly half, not overflow
         let claimable = vesting.get_claimable(&id);
         assert_eq!(claimable, large_amount / 2);
@@ -1211,10 +1209,7 @@ mod tests {
         ms.execute(&prop_id);
 
         let prop = ms.get_proposal(&prop_id);
-        assert_eq!(
-            prop.status,
-            multisig::ProposalStatus::Executed
-        );
+        assert_eq!(prop.status, multisig::ProposalStatus::Executed);
     }
 
     #[test]
