@@ -7,119 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (2026-10-04)
+### Added — 2026-10-04
 
-- contracts/multisig/src/lib.rs: 15 new tests (19 total) covering update_threshold,
-  update_threshold_zero_panics, update_threshold_exceeds_owners_panics, add_owner,
-  add_owner_duplicate_panics, remove_owner, remove_owner_below_threshold_panics,
-  double_confirm_panics, non_owner_submit_panics, non_owner_confirm_panics,
-  execute_by_non_owner_succeeds_when_threshold_met, execute_twice_panics,
-  cancel_by_proposer, cancel_by_non_proposer_panics, and
-  revoke_drops_below_threshold_then_reconfirm_executes. (PR #30)
-- README.md: "Status and limitations" table listing audit status, backend stub
-  behaviour, missing wallet integration, proptest status, multisig execute
-  status, and mainnet recommendation.
-- docs/architecture.md: signing model section clarifying that the backend does
-  not hold private keys or submit transactions.
-- contracts/vesting/src/lib.rs: manual parameterised tests for four vesting
-  math properties (vested never decreases, never exceeds total, zero before
-  cliff, equals total at or after end).
-- contracts/vesting/src/lib.rs: multisig-as-admin end-to-end tests
-  (test_multisig_admin_flow, test_multisig_below_threshold_panics): multisig
-  contract is the vesting admin; a proposal confirmed to threshold executes via
-  a real cross-contract call; execution below threshold panics with "not enough
-  confirmations".
-- contracts/vesting/src/lib.rs: events emitted for create_schedule, claim,
-  revoke, pause/unpause, transfer_admin; tests assert events are published.
-- contracts/token/src/lib.rs: events emitted for mint, burn, transfer, approve,
-  pause/unpause.
+- contracts/multisig/src/lib.rs: 15 new tests — 19 total (PR #30):
+  `test_update_threshold`, `test_update_threshold_zero_panics`,
+  `test_update_threshold_exceeds_owners_panics`, `test_add_owner`,
+  `test_add_owner_duplicate_panics`, `test_remove_owner`,
+  `test_remove_owner_below_threshold_panics`, `test_double_confirm_panics`,
+  `test_non_owner_submit_panics`, `test_non_owner_confirm_panics`,
+  `test_execute_by_non_owner_succeeds_when_threshold_met`,
+  `test_execute_twice_panics`, `test_cancel_by_proposer`,
+  `test_cancel_by_non_proposer_panics`,
+  `test_revoke_drops_below_threshold_then_reconfirm_executes`.
+- contracts/token/src/lib.rs: 22 new tests — 27 total (PR #32):
+  `test_event_mint`, `test_event_burn`, `test_event_transfer`,
+  `test_event_transfer_from`, `test_event_approve`, `test_event_pause`,
+  `test_event_unpause`, `test_allowance_exhaustion`,
+  `test_transfer_from_over_allowance`, `test_approve_zero_resets_allowance`,
+  `test_unpause_restores_transfer`, `test_approve_while_paused`,
+  `test_transfer_from_while_paused`, `test_burn_while_paused`,
+  `test_mint_while_paused`, `test_burn_more_than_balance`,
+  `test_mint_zero_amount`, `test_mint_negative_amount`,
+  `test_transfer_zero_amount`, `test_approve_negative_amount`,
+  `test_burn_zero_amount`, `test_unauthorized_mint`.
+- contracts/multisig/src/lib.rs: `execute()` dispatches cross-contract calls
+  via `env.invoke_contract`; 4 new tests (PR #33, PR #34):
+  `test_execute_real_cross_contract_call`, `test_execute_failing_target_reverts`,
+  `test_execute_below_threshold_panics`, `test_execute_twice_panics_t3`,
+  `test_execute_proposal_stored_fields`.
+- contracts/multisig/src/lib.rs: `ProposalAction` enum (`Call(CallData)`,
+  `AddOwner(Address)`, `RemoveOwner(Address)`, `UpdateThreshold(u32)`)
+  replacing flat `(target, function, args)` fields on `ProposalData` (PR #35).
+  Owner management variants are handled directly inside `execute()` — no public
+  `add_owner`, `remove_owner`, or `update_threshold` entry points exist.
+  `RemoveOwner` clears the removed owner's confirmations on pending proposals
+  and decrements `confirmation_count`. 28 tests total; new tests (PR #35):
+  `test_add_owner_requires_threshold`, `test_owner_management_only_via_proposal`,
+  `test_remove_owner_only_via_proposal`, `test_update_threshold_only_via_proposal`,
+  `test_self_call_reentrance_fails`, `test_remove_owner_clears_confirmations`.
+- contracts/vesting/src/lib.rs: multisig-as-admin end-to-end tests (PR #34, PR #35):
+  `test_multisig_admin_flow` — multisig (2-of-3) calls `vesting.pause()` and the
+  contract is paused; `test_multisig_below_threshold_panics` — below threshold
+  panics; `test_multisig_create_schedule` — multisig calls `create_schedule` with
+  a real token, asserts funder balance goes to zero, vesting contract receives
+  tokens, beneficiary claims the full amount after duration.
+- contracts/vesting/src/lib.rs: manual parameterised property tests (PR #33):
+  `test_prop_vested_never_decreases`, `test_prop_zero_before_cliff`,
+  `test_prop_equals_total_at_end`, `test_no_arithmetic_overflow_large_amount`.
+- contracts/vesting/src/lib.rs: event-emission tests (PR #33):
+  `test_event_created`, `test_event_claimed`, `test_event_revoked`,
+  `test_event_pause_unpause`, `test_event_transfer_admin`.
 - backend/src/routes/*.test.js: Jest tests for vesting, token, multisig, and
-  health routes with Stellar service mocked (validation errors, success
-  responses, health endpoint).
-- SECURITY.md: threat model covering admin key compromise, multisig threshold,
-  revocation, token pause, replay, TTL expiry; signing model documentation.
-- .github/workflows/ci.yml: frontend job extended with html-validate and
-  eslint steps.
+  health routes with Stellar service mocked (PR #31).
+- SECURITY.md: threat model and signing model documentation (PR #31).
+- .github/workflows/ci.yml: html-validate and eslint steps for frontend (PR #31).
 
-### Fixed (2026-10-04) — Task A: multisig owner management authorization
+### Changed — 2026-10-04
 
-- contracts/multisig/src/lib.rs: critical authorization bug fixed. `add_owner`,
-  `remove_owner`, and `update_threshold` had no `require_auth` and no caller
-  check — any account could add themselves as owner and lower the threshold to 1,
-  gaining full control of any contract the multisig administers.
-- contracts/multisig/src/lib.rs: introduced `ProposalAction` enum
-  (`Call(CallData)`, `AddOwner(Address)`, `RemoveOwner(Address)`,
-  `UpdateThreshold(u32)`) replacing the flat `(target, function, args)` fields
-  on `ProposalData`. Owner management variants are handled directly inside
-  `execute()` — no public entry points exist for `add_owner`, `remove_owner`,
-  or `update_threshold`.
-- contracts/multisig/src/lib.rs: `execute()` now dispatches `ProposalAction::Call`
-  via `env.invoke_contract`, and internal variants (`AddOwner`, `RemoveOwner`,
-  `UpdateThreshold`) directly — no cross-contract call is issued for internal
-  actions (Soroban disallows self-invocation).
-- contracts/multisig/src/lib.rs: when `RemoveOwner` executes, existing
-  confirmations by the removed owner on pending proposals are cleared and
-  `confirmation_count` is decremented, keeping threshold accounting accurate.
-- contracts/multisig/src/lib.rs: 28 tests total (was 24); new tests:
-  `test_outsider_cannot_add_owner`, `test_outsider_cannot_remove_owner`,
-  `test_outsider_cannot_update_threshold` (prove the bug pre-fix; pass after fix),
-  `test_owner_management_only_via_proposal`, `test_remove_owner_only_via_proposal`,
-  `test_update_threshold_only_via_proposal`, `test_self_call_reentrance_fails`,
-  `test_remove_owner_clears_confirmations`.
-- contracts/vesting/src/lib.rs: updated `test_multisig_admin_flow`,
-  `test_multisig_below_threshold_panics` to use new `ProposalAction` API.
-- contracts/vesting/src/lib.rs: added `test_multisig_create_schedule` — end-to-end
-  test where the multisig (as vesting admin) calls `create_schedule` with a real
-  token; asserts token balances, schedule count, and beneficiary can claim.
-- README.md, docs/architecture.md: updated to describe the actual implemented
-  behaviour.
+- README.md: architecture diagram, contract API tables, "Multisig as vesting
+  admin" section, "Status and limitations" table updated to reflect actual
+  behaviour (PRs #31, #35).
+- docs/architecture.md: contract interactions section updated; multisig execute
+  described accurately (PR #35).
+- CONTRIBUTING.md, SECURITY.md: rewritten with repo-specific commands and
+  threat model (PR #31).
+- backend/package.json: removed `--passWithNoTests` flag (PR #31).
 
-### Changed (2026-10-04)
+### Fixed — 2026-10-04
 
-- README.md: layout tree corrected to match the repo; wording updated to
-  "reference implementation, unaudited, testnet-ready"; multisig-as-admin flow
-  described; testnet-demo section updated to reflect what
-  scripts/demo-testnet.sh actually does.
-- backend/package.json: removed --passWithNoTests flag from jest invocation.
-- SECURITY.md: rewritten to be specific to this repo with real commands,
-  threat model, and signing architecture.
-- CONTRIBUTING.md: rewritten with repo-specific commands, structure, and risks.
+- contracts/multisig/src/lib.rs: critical — `add_owner`, `remove_owner`, and
+  `update_threshold` had no `require_auth` and no caller check, allowing any
+  account to take over the multisig and any contract it administers (PR #35).
+- .github/workflows/ci.yml: YAML parse error (inline JSON in `--rule` flag);
+  `|| true` removed from lint step; ESLint config extracted to
+  `frontend/.eslintrc.json` (PR #31).
+- frontend/index.html: 37 html-validate errors fixed — void-element
+  self-closing slashes, redundant ARIA landmark roles, missing `type=` on
+  buttons, missing submit button on `confirmForm` (PR #31).
+- contracts/multisig/src/lib.rs: test name `test_outsider_cannot_add_owner`
+  renamed to `test_add_owner_requires_threshold`; contradictory comment fixed
+  (PR #36).
+- CHANGELOG.md: removed meta-doc entry that documented an earlier documentation
+  change (PR #36).
 
-### Fixed (2026-10-04)
+### Removed — 2026-10-04
 
-- .github/workflows/ci.yml: fixed YAML parse error (inline JSON in --rule flag
-  broke the workflow before any jobs ran); removed || true from lint step;
-  extracted ESLint config to frontend/.eslintrc.json.
-- frontend/index.html: fixed all 37 html-validate errors (void element
-  self-closing slashes, redundant ARIA landmark roles, missing type= on
-  buttons, wcag/h32 missing submit button on confirmForm).
-- contracts/vesting/src/lib.rs: applied cargo fmt (three formatting diffs).
+- Cargo.lock removed from `.gitignore` — lockfile is now tracked by git (PR #31).
 
-### Removed (2026-10-04)
+### Added — 2026-09-20
 
-- Cargo.lock removed from .gitignore so the lockfile is tracked by git (CI
-  already caches on it).
-
-### Added (2026-09-20)
-
-- contracts/vesting/src/lib.rs: 29 `#[test]` functions covering create and
-  claim (partial and full), zero cliff, cliff blocks early claim, revoke returns
-  unvested tokens, revoke pays vested to beneficiary, claim after revoke panics,
-  claim before cliff panics, pause blocks create_schedule and claim, unpause
-  restores claim, transfer_admin, schedule_count, multiple beneficiaries,
-  beneficiary_schedules (multiple), double revoke panics, double initialize
-  panics, is_paused state, and events (created, claimed, revoked,
-  pause/unpause, transfer_admin).
+- contracts/vesting/src/lib.rs: 29 tests covering create/claim (partial and
+  full), zero cliff, cliff gate, revoke (unvested returned, vested paid to
+  beneficiary), claim-after-revoke panic, claim-before-cliff panic, pause
+  blocks create/claim, unpause restores, transfer_admin, schedule_count,
+  multiple beneficiaries, beneficiary_schedules, double-revoke panic,
+  double-initialize panic, is_paused state, events (PR #29).
 - scripts/demo-testnet.sh: keygen, Friendbot funding, build, deploy token +
-  vesting, mint, approve, create schedule, claim if the cliff has passed.
-- docs/testnet-demo.md: manual walkthrough with the 1-year cliff / 4-year DAO
-  example.
+  vesting, mint, create schedule, claim (PR #28).
+- docs/testnet-demo.md: step-by-step walkthrough with 1-year cliff / 4-year
+  DAO example (PR #28).
 
-### Changed (2026-09-20)
+### Changed — 2026-09-20
 
-- README.md: architecture diagram, "What this platform does" example, contract
-  API tables, schedule lifecycle diagram, repository layout, prerequisites,
-  link to testnet demo docs.
+- README.md: architecture diagram, "What this platform does" DAO example,
+  contract API tables, schedule lifecycle diagram, repository layout,
+  prerequisites, link to testnet demo docs (PR #27).
 
 ## [0.1.0] - 2026-09-02
 
