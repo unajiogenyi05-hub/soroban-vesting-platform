@@ -110,4 +110,5 @@ jobs:
         run: npx html-validate frontend/index.html
 
       - name: Lint frontend JS
-        run: npx eslint --no-eslintrc --env browser,es2020 --rule '{"no-undef": "warn"}' frontend/js/app.js || true
+        run: |
+          npx eslint --config frontend/.eslintrc.json frontend/js/app.js
