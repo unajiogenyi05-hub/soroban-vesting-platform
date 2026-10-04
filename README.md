@@ -213,25 +213,49 @@ create_schedule(params)
 | Function | Auth | Description |
 |----------|------|-------------|
 | `initialize(owners, threshold)` | — | One-time init |
-| `submit(proposer, description)` | proposer (owner) | Create proposal |
+| `submit(proposer, action, description)` | proposer (owner) | Create proposal with a `ProposalAction` |
 | `confirm(owner, proposal_id)` | owner | Add confirmation |
 | `revoke_confirmation(owner, proposal_id)` | owner | Remove confirmation |
-| `execute(proposal_id)` | anyone | Execute if threshold met |
+| `execute(proposal_id)` | anyone | Execute if threshold met (permissionless) |
 | `cancel(caller, proposal_id)` | proposer | Cancel proposal |
+
+`ProposalAction` variants:
+
+| Variant | Effect |
+|---------|--------|
+| `Call(CallData)` | Dispatch `target.function(args)` via cross-contract call |
+| `AddOwner(address)` | Add a new owner (handled internally, no external call) |
+| `RemoveOwner(address)` | Remove an owner; clears their confirmations on pending proposals |
+| `UpdateThreshold(u32)` | Change the required confirmation count |
+
+There are no public `add_owner`, `remove_owner`, or `update_threshold` entry points.
+Every change to the owner set or threshold must go through a fully-confirmed proposal.
 
 ---
 
 ## Multisig as vesting admin
 
 The contracts support a flow where the multisig contract acts as the vesting
-admin. A proposal with description bytes encoding the `create_schedule` call
-is submitted by an owner, confirmed to the threshold by other owners, and
-executed. This prevents any single key from creating or revoking schedules
-unilaterally.
+admin. An owner submits a proposal with a `ProposalAction::Call` targeting the
+vesting contract (e.g. `create_schedule`, `pause`, `revoke`), other owners
+confirm it to the threshold, and anyone calls `execute()`. The multisig contract
+address is set as the vesting admin, so `admin.require_auth()` inside vesting is
+satisfied when the call originates from the multisig.
 
-A unit test in `contracts/vesting/src/lib.rs` (`test_multisig_admin_flow`)
-covers the submit → confirm-to-threshold → execute path and verifies that
-execution below the threshold panics with "not enough confirmations".
+Owner-set changes (add/remove owner, update threshold) also go through proposals
+(`ProposalAction::AddOwner`, `RemoveOwner`, `UpdateThreshold`) — there are no
+public entry points for these operations. This means no single key can alter the
+owner set unilaterally.
+
+`execute()` is permissionless: once the threshold is met, any caller can trigger
+it. The owners expressed consent through their on-chain confirmations; the final
+trigger needs no additional gate.
+
+Unit tests in `contracts/vesting/src/lib.rs` cover:
+- `test_multisig_admin_flow` — submit → confirm-to-threshold → execute pause()
+- `test_multisig_below_threshold_panics` — execution below threshold panics
+- `test_multisig_create_schedule` — end-to-end: multisig calls create_schedule
+  with a real token, asserts token balances and beneficiary can claim
 
 ---
 
@@ -279,7 +303,7 @@ can be developed independently of a live deployment.
 | Frontend | Calls the backend API. No wallet (Freighter) integration. |
 | proptest | Not used. Property-based tests are manual parameterised tables. |
 | Testnet deployment | No contract IDs exist in this repo. Run `scripts/demo-testnet.sh` to deploy your own. |
-| Multisig execute | The multisig contract records proposals as Executed but does not dispatch cross-contract admin calls. The encoding of `description` bytes into actual contract invocations is not implemented. |
+| Multisig execute | `execute()` dispatches the proposal action. `ProposalAction::Call` makes a real cross-contract call via `env.invoke_contract`. Owner management actions (`AddOwner`, `RemoveOwner`, `UpdateThreshold`) are handled internally — no public entry points exist for them. |
 | Mainnet | Not recommended. No audit, no mainnet deployment. |
 
 ---

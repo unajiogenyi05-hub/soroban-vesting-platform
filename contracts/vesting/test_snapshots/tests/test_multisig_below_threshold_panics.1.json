@@ -22,7 +22,42 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "bytes": "6372656174655f7363686564756c652063616c6c"
+                  "vec": [
+                    {
+                      "symbol": "Call"
+                    },
+                    {
+                      "map": [
+                        {
+                          "key": {
+                            "symbol": "args"
+                          },
+                          "val": {
+                            "vec": []
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "function"
+                          },
+                          "val": {
+                            "symbol": "pause"
+                          }
+                        },
+                        {
+                          "key": {
+                            "symbol": "target"
+                          },
+                          "val": {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "string": "pause vesting"
                 }
               ]
             }
@@ -157,6 +192,46 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "action"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Call"
+                        },
+                        {
+                          "map": [
+                            {
+                              "key": {
+                                "symbol": "args"
+                              },
+                              "val": {
+                                "vec": []
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "function"
+                              },
+                              "val": {
+                                "symbol": "pause"
+                              }
+                            },
+                            {
+                              "key": {
+                                "symbol": "target"
+                              },
+                              "val": {
+                                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "confirmation_count"
                     },
                     "val": {
@@ -176,7 +251,7 @@
                       "symbol": "description"
                     },
                     "val": {
-                      "bytes": "6372656174655f7363686564756c652063616c6c"
+                      "string": "pause vesting"
                     }
                   },
                   {

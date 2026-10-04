@@ -391,7 +391,7 @@ impl VestingContract {
 mod tests {
     use super::*;
     use soroban_sdk::testutils::{Address as _, Events, Ledger};
-    use soroban_sdk::{token::StellarAssetClient, vec, Env};
+    use soroban_sdk::{token::StellarAssetClient, Env};
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -1162,19 +1162,20 @@ mod tests {
         }
     }
 
-    // ── Upgrade 4: Multisig as vesting admin — end-to-end ────────────────────
+    // ── Multisig as vesting admin — end-to-end ───────────────────────────────
     //
-    // The multisig contract is the vesting admin.
-    // A proposal confirmed to threshold executes; below threshold panics.
+    // The multisig contract is the vesting admin.  All tests use the real
+    // ProposalAction enum introduced in Task A.  Owner management actions
+    // (add_owner, remove_owner, update_threshold) are no longer public entry
+    // points; they can only be triggered through an executed proposal.
     //
-    // execute() dispatches a real cross-contract call: the multisig invokes
-    // vesting.pause() and the call succeeds because the multisig contract
-    // address is the vesting admin (admin.require_auth() is satisfied when
-    // the call originates from that contract).
+    // execute() dispatches a real cross-contract call for ProposalAction::Call
+    // variants.  The multisig is the vesting admin, so its invocation satisfies
+    // admin.require_auth() inside pause() / create_schedule() / etc.
 
     #[test]
     fn test_multisig_admin_flow() {
-        use multisig::{MultisigContract, MultisigContractClient};
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
 
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -1202,9 +1203,11 @@ mod tests {
         // satisfies admin.require_auth() inside pause().
         let id = ms.submit(
             &o1,
-            &vesting_id,
-            &soroban_sdk::symbol_short!("pause"),
-            &soroban_sdk::Vec::new(&env),
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::symbol_short!("pause"),
+                args: soroban_sdk::Vec::new(&env),
+            }),
             &soroban_sdk::String::from_str(&env, "pause vesting via multisig"),
         );
 
@@ -1223,7 +1226,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "not enough confirmations")]
     fn test_multisig_below_threshold_panics() {
-        use multisig::{MultisigContract, MultisigContractClient};
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
 
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -1246,12 +1249,109 @@ mod tests {
 
         let id = ms.submit(
             &o1,
-            &vesting_id,
-            &soroban_sdk::symbol_short!("pause"),
-            &soroban_sdk::Vec::new(&env),
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::symbol_short!("pause"),
+                args: soroban_sdk::Vec::new(&env),
+            }),
             &soroban_sdk::String::from_str(&env, "pause vesting"),
         );
         ms.confirm(&o1, &id); // only 1 of 2 needed -> should panic on execute
         ms.execute(&id);
+    }
+
+    /// End-to-end: multisig calls create_schedule with a real token.
+    ///
+    /// The multisig is the vesting admin.  A 2-of-3 proposal submits
+    /// create_schedule, both required owners confirm, and execute() is called.
+    /// We assert that the schedule was created and the token balance was
+    /// transferred into the vesting contract.
+    #[test]
+    fn test_multisig_create_schedule() {
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
+        use soroban_sdk::{token::StellarAssetClient, IntoVal};
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+
+        // Deploy multisig (2-of-3)
+        let ms_id = env.register(MultisigContract, ());
+        let ms = MultisigContractClient::new(&env, &ms_id);
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        ms.initialize(&owners, &2u32);
+
+        // Deploy vesting with multisig as admin
+        let vesting_id = env.register(VestingContract, ());
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.initialize(&ms_id);
+
+        // Mint tokens to funder
+        let token_id = env.register_stellar_asset_contract_v2(funder.clone());
+        let token_addr = token_id.address();
+        StellarAssetClient::new(&env, &token_addr).mint(&funder, &100_000);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token_addr);
+        assert_eq!(token_client.balance(&funder), 100_000);
+
+        let start = env.ledger().timestamp();
+
+        // Build the create_schedule params and encode them as contract args.
+        // create_schedule takes a single CreateScheduleParams argument.
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        // Encode the params as Vec<Val> — create_schedule takes one argument.
+        let mut args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::Vec::new(&env);
+        args.push_back(params.into_val(&env));
+
+        let id = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::Symbol::new(&env, "create_schedule"),
+                args,
+            }),
+            &soroban_sdk::String::from_str(&env, "create schedule for beneficiary"),
+        );
+
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+
+        assert_eq!(
+            ms.get_proposal(&id).status,
+            multisig::ProposalStatus::Executed
+        );
+
+        // Vesting contract should have 1 schedule
+        assert_eq!(vesting.schedule_count(), 1);
+
+        // Tokens should have been transferred from funder to vesting contract
+        assert_eq!(token_client.balance(&funder), 0);
+        assert_eq!(token_client.balance(&vesting_id), 100_000);
+
+        // Advance time past the full duration and let beneficiary claim
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        assert_eq!(vesting.get_claimable(&1u64), 100_000);
+
+        let claimed = vesting.claim(&1u64);
+        assert_eq!(claimed, 100_000);
+        assert_eq!(token_client.balance(&beneficiary), 100_000);
     }
 }

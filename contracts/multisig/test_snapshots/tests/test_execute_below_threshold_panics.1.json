@@ -56,7 +56,7 @@
                   ]
                 },
                 {
-                  "string": "test"
+                  "string": "below threshold"
                 }
               ]
             }
@@ -250,7 +250,7 @@
                       "symbol": "description"
                     },
                     "val": {
-                      "string": "test"
+                      "string": "below threshold"
                     }
                   },
                   {
