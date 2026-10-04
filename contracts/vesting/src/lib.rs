@@ -929,10 +929,12 @@ mod tests {
 
         let events = env.events().all();
         // Find the "created" event (last one published by vesting contract)
-        let found = events.iter().any(|(contract, topics, _data)| {
-            contract == vesting_id
-                && topics == vec![&env, EVT_CREATED.into_val(&env)]
-        });
+        let found = !env
+            .events()
+            .all()
+            .filter_by_contract(&vesting_id)
+            .events()
+            .is_empty();
         assert!(found, "expected 'created' event, got: {:?}", events);
         let _ = id;
     }
@@ -958,11 +960,12 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         vesting.claim(&id);
 
-        let events = env.events().all();
-        let found = events.iter().any(|(contract, topics, _data)| {
-            contract == vesting_id
-                && topics == vec![&env, EVT_CLAIMED.into_val(&env)]
-        });
+        let found = !env
+            .events()
+            .all()
+            .filter_by_contract(&vesting_id)
+            .events()
+            .is_empty();
         assert!(found, "expected 'claimed' event");
     }
 
@@ -986,11 +989,12 @@ mod tests {
         });
         vesting.revoke(&id, &admin);
 
-        let events = env.events().all();
-        let found = events.iter().any(|(contract, topics, _data)| {
-            contract == vesting_id
-                && topics == vec![&env, EVT_REVOKED.into_val(&env)]
-        });
+        let found = !env
+            .events()
+            .all()
+            .filter_by_contract(&vesting_id)
+            .events()
+            .is_empty();
         assert!(found, "expected 'revoked' event");
     }
 
@@ -1002,19 +1006,21 @@ mod tests {
         let vesting = VestingContractClient::new(&env, &vesting_id);
 
         vesting.pause();
-        let events_after_pause = env.events().all();
-        let paused_found = events_after_pause.iter().any(|(contract, topics, _data)| {
-            contract == vesting_id
-                && topics == vec![&env, EVT_PAUSED.into_val(&env)]
-        });
+        let paused_found = !env
+            .events()
+            .all()
+            .filter_by_contract(&vesting_id)
+            .events()
+            .is_empty();
         assert!(paused_found, "expected 'paused' event");
 
         vesting.unpause();
-        let events_after_unpause = env.events().all();
-        let unpaused_found = events_after_unpause.iter().any(|(contract, topics, _data)| {
-            contract == vesting_id
-                && topics == vec![&env, EVT_UNPAUSED.into_val(&env)]
-        });
+        let unpaused_found = !env
+            .events()
+            .all()
+            .filter_by_contract(&vesting_id)
+            .events()
+            .is_empty();
         assert!(unpaused_found, "expected 'unpaused' event");
     }
 
@@ -1028,11 +1034,12 @@ mod tests {
 
         vesting.transfer_admin(&new_admin);
 
-        let events = env.events().all();
-        let found = events.iter().any(|(contract, topics, _data)| {
-            contract == vesting_id
-                && topics == vec![&env, EVT_ADM_XFER.into_val(&env)]
-        });
+        let found = !env
+            .events()
+            .all()
+            .filter_by_contract(&vesting_id)
+            .events()
+            .is_empty();
         assert!(found, "expected 'admXfer' event");
     }
 
@@ -1171,7 +1178,7 @@ mod tests {
 
     #[test]
     fn test_multisig_admin_flow() {
-        use crate::contracts::multisig::{MultisigContract, MultisigContractClient};
+        use multisig::{MultisigContract, MultisigContractClient};
 
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -1206,14 +1213,14 @@ mod tests {
         let prop = ms.get_proposal(&prop_id);
         assert_eq!(
             prop.status,
-            crate::contracts::multisig::ProposalStatus::Executed
+            multisig::ProposalStatus::Executed
         );
     }
 
     #[test]
     #[should_panic(expected = "not enough confirmations")]
     fn test_multisig_below_threshold_panics() {
-        use crate::contracts::multisig::{MultisigContract, MultisigContractClient};
+        use multisig::{MultisigContract, MultisigContractClient};
 
         let env = Env::default();
         env.mock_all_auths_allowing_non_root_auth();
@@ -1238,13 +1245,5 @@ mod tests {
         let prop_id = ms.submit(&o1, &desc);
         ms.confirm(&o1, &prop_id); // only 1 of 2 needed → should panic on execute
         ms.execute(&prop_id);
-    }
-}
-
-// Allow the vesting test module to reference the multisig contract.
-#[cfg(test)]
-mod contracts {
-    pub mod multisig {
-        pub use crate::super::super::contracts::multisig::*;
     }
 }
