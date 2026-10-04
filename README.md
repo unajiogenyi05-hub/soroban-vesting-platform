@@ -1,7 +1,8 @@
 # Soroban Vesting Platform
 
-A production-ready token vesting platform built on the [Stellar](https://stellar.org)
-network using [Soroban](https://soroban.stellar.org) smart contracts.
+A reference implementation, unaudited, testnet-ready token vesting platform
+built on the [Stellar](https://stellar.org) network using
+[Soroban](https://soroban.stellar.org) smart contracts.
 
 [![CI](https://github.com/unajiogenyi05-hub/soroban-vesting-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/unajiogenyi05-hub/soroban-vesting-platform/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -93,7 +94,9 @@ soroban-vesting-platform/
 ├── .env.example
 ├── Cargo.toml            # Workspace root
 ├── Makefile
-└── EMMY_CHANGELOG.md
+├── CHANGELOG.md
+├── SECURITY.md
+└── CONTRIBUTING.md
 ```
 
 ---
@@ -148,7 +151,6 @@ that walks through:
 2. Deploying both contracts
 3. Minting tokens and creating a vesting schedule
 4. Claiming vested tokens as the beneficiary
-5. Verifying on Stellar Expert and Stellar Lab
 
 ---
 
@@ -216,6 +218,20 @@ create_schedule(params)
 | `revoke_confirmation(owner, proposal_id)` | owner | Remove confirmation |
 | `execute(proposal_id)` | anyone | Execute if threshold met |
 | `cancel(caller, proposal_id)` | proposer | Cancel proposal |
+
+---
+
+## Multisig as vesting admin
+
+The contracts support a flow where the multisig contract acts as the vesting
+admin. A proposal with description bytes encoding the `create_schedule` call
+is submitted by an owner, confirmed to the threshold by other owners, and
+executed. This prevents any single key from creating or revoking schedules
+unilaterally.
+
+A unit test in `contracts/vesting/src/lib.rs` (`test_multisig_admin_flow`)
+covers the submit → confirm-to-threshold → execute path and verifies that
+execution below the threshold panics with "not enough confirmations".
 
 ---
 

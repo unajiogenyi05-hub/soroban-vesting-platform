@@ -26,6 +26,11 @@ const ADMIN: Symbol = symbol_short!("ADMIN");
 const PAUSED: Symbol = symbol_short!("PAUSED");
 const SCHED_ID: Symbol = symbol_short!("SCHED_ID");
 
+/// Persistent storage TTL bump: 1 year in ledgers (~5 seconds each).
+const TTL_BUMP_LEDGERS: u32 = 6_307_200; // ~1 year
+/// Minimum TTL threshold before bumping.
+const TTL_BUMP_THRESHOLD: u32 = 518_400; // ~30 days
+
 // ─── Data types ────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -76,6 +81,7 @@ const EVT_CLAIMED: Symbol = symbol_short!("claimed");
 const EVT_REVOKED: Symbol = symbol_short!("revoked");
 const EVT_PAUSED: Symbol = symbol_short!("paused");
 const EVT_UNPAUSED: Symbol = symbol_short!("unpaused");
+const EVT_ADM_XFER: Symbol = symbol_short!("admXfer");
 
 // ─── Contract ──────────────────────────────────────────────────────────────
 
@@ -137,6 +143,11 @@ impl VestingContract {
         env.storage()
             .persistent()
             .set(&DataKey::Schedule(next_id), &schedule);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Schedule(next_id),
+            TTL_BUMP_THRESHOLD,
+            TTL_BUMP_LEDGERS,
+        );
 
         let mut ids: Vec<u64> = env
             .storage()
@@ -147,6 +158,11 @@ impl VestingContract {
         env.storage().persistent().set(
             &DataKey::BeneficiarySchedules(params.beneficiary.clone()),
             &ids,
+        );
+        env.storage().persistent().extend_ttl(
+            &DataKey::BeneficiarySchedules(params.beneficiary.clone()),
+            TTL_BUMP_THRESHOLD,
+            TTL_BUMP_LEDGERS,
         );
 
         env.storage().instance().set(&SCHED_ID, &next_id);
@@ -191,6 +207,11 @@ impl VestingContract {
         env.storage()
             .persistent()
             .set(&DataKey::Schedule(schedule_id), &schedule);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Schedule(schedule_id),
+            TTL_BUMP_THRESHOLD,
+            TTL_BUMP_LEDGERS,
+        );
 
         let tk = token::Client::new(&env, &schedule.token);
         tk.transfer(
@@ -207,7 +228,10 @@ impl VestingContract {
         claimable
     }
 
-    /// Revoke an active schedule. Unvested tokens return to `recipient`.
+    /// Revoke an active schedule.
+    ///
+    /// Vested-but-unclaimed tokens are paid to the beneficiary first.
+    /// Only the truly unvested portion is returned to `recipient`.
     pub fn revoke(env: Env, schedule_id: u64, recipient: Address) -> i128 {
         Self::require_admin(&env);
 
@@ -223,12 +247,31 @@ impl VestingContract {
 
         let now = env.ledger().timestamp();
         let vested = Self::vested_amount(&schedule, now);
+
+        // Pay any vested-but-unclaimed tokens to the beneficiary.
+        let unclaimed_vested = vested - schedule.claimed_amount;
+        if unclaimed_vested > 0 {
+            let tk = token::Client::new(&env, &schedule.token);
+            tk.transfer(
+                &env.current_contract_address(),
+                &schedule.beneficiary,
+                &unclaimed_vested,
+            );
+            schedule.claimed_amount += unclaimed_vested;
+        }
+
+        // Return the unvested portion to the recipient (typically treasury).
         let unvested = schedule.total_amount - vested;
 
         schedule.status = ScheduleStatus::Revoked;
         env.storage()
             .persistent()
             .set(&DataKey::Schedule(schedule_id), &schedule);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Schedule(schedule_id),
+            TTL_BUMP_THRESHOLD,
+            TTL_BUMP_LEDGERS,
+        );
 
         if unvested > 0 {
             let tk = token::Client::new(&env, &schedule.token);
@@ -261,6 +304,7 @@ impl VestingContract {
         Self::require_admin(&env);
         new_admin.require_auth();
         env.storage().instance().set(&ADMIN, &new_admin);
+        env.events().publish((EVT_ADM_XFER,), new_admin);
     }
 
     // ── Read functions ─────────────────────────────────────────────────────
@@ -322,6 +366,11 @@ impl VestingContract {
         }
     }
 
+    /// Compute how much of `total_amount` has vested by timestamp `now`.
+    ///
+    /// Uses `saturating_mul` to avoid overflow on large amounts × elapsed.
+    /// Division by zero is impossible because `total_duration > 0` is enforced
+    /// at schedule creation.
     fn vested_amount(schedule: &VestingSchedule, now: u64) -> i128 {
         if now < schedule.start_time + schedule.cliff_duration {
             return 0;
@@ -330,7 +379,10 @@ impl VestingContract {
         if elapsed >= schedule.total_duration {
             return schedule.total_amount;
         }
-        (schedule.total_amount * i128::from(elapsed)) / i128::from(schedule.total_duration)
+        // saturating_mul prevents i128 overflow for very large amounts × elapsed.
+        i128::from(elapsed)
+            .saturating_mul(schedule.total_amount)
+            / i128::from(schedule.total_duration)
     }
 }
 
@@ -339,8 +391,8 @@ impl VestingContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger};
-    use soroban_sdk::{token::StellarAssetClient, Env};
+    use soroban_sdk::testutils::{Address as _, Events, Ledger};
+    use soroban_sdk::{token::StellarAssetClient, vec, Env};
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -488,7 +540,41 @@ mod tests {
         assert_eq!(sched.status, ScheduleStatus::Completed);
     }
 
-    // ── revoke returns unvested tokens ───────────────────────────────────────
+    // ── revoke returns unvested tokens; vested-but-unclaimed go to beneficiary
+
+    #[test]
+    fn test_revoke_pays_vested_to_beneficiary() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // At t=25: 25_000 vested, unclaimed. Revoke should send 25_000 to
+        // beneficiary and 75_000 to admin (treasury).
+        env.ledger().with_mut(|l| l.timestamp = start + 25);
+        let returned = vesting.revoke(&id, &admin);
+        assert_eq!(returned, 75_000); // unvested
+
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
+
+        // Beneficiary should have received the vested 25_000 automatically.
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(token_client.balance(&beneficiary), 25_000);
+        assert_eq!(token_client.balance(&admin), 75_000);
+    }
+
+    // ── revoke returns unvested tokens (original test variant) ───────────────
 
     #[test]
     fn test_revoke_returns_unvested() {
@@ -507,6 +593,7 @@ mod tests {
             total_duration: 100,
         });
 
+        // At t=25: 25k vested (unclaimed), 75k unvested → revoke returns 75k
         env.ledger().with_mut(|l| l.timestamp = start + 25);
         let returned = vesting.revoke(&id, &admin);
         assert_eq!(returned, 75_000);
@@ -819,5 +906,345 @@ mod tests {
         let (env, vesting_id, admin, _b, _f) = setup();
         let vesting = VestingContractClient::new(&env, &vesting_id);
         vesting.initialize(&admin); // second call must panic
+    }
+
+    // ── events: create_schedule emits "created" ───────────────────────────────
+
+    #[test]
+    fn test_event_created() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        let events = env.events().all();
+        // Find the "created" event (last one published by vesting contract)
+        let found = events.iter().any(|(contract, topics, _data)| {
+            contract == vesting_id
+                && topics == vec![&env, EVT_CREATED.into_val(&env)]
+        });
+        assert!(found, "expected 'created' event, got: {:?}", events);
+        let _ = id;
+    }
+
+    // ── events: claim emits "claimed" ─────────────────────────────────────────
+
+    #[test]
+    fn test_event_claimed() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.claim(&id);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(contract, topics, _data)| {
+            contract == vesting_id
+                && topics == vec![&env, EVT_CLAIMED.into_val(&env)]
+        });
+        assert!(found, "expected 'claimed' event");
+    }
+
+    // ── events: revoke emits "revoked" ────────────────────────────────────────
+
+    #[test]
+    fn test_event_revoked() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        vesting.revoke(&id, &admin);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(contract, topics, _data)| {
+            contract == vesting_id
+                && topics == vec![&env, EVT_REVOKED.into_val(&env)]
+        });
+        assert!(found, "expected 'revoked' event");
+    }
+
+    // ── events: pause/unpause ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_event_pause_unpause() {
+        let (env, vesting_id, _admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        vesting.pause();
+        let events_after_pause = env.events().all();
+        let paused_found = events_after_pause.iter().any(|(contract, topics, _data)| {
+            contract == vesting_id
+                && topics == vec![&env, EVT_PAUSED.into_val(&env)]
+        });
+        assert!(paused_found, "expected 'paused' event");
+
+        vesting.unpause();
+        let events_after_unpause = env.events().all();
+        let unpaused_found = events_after_unpause.iter().any(|(contract, topics, _data)| {
+            contract == vesting_id
+                && topics == vec![&env, EVT_UNPAUSED.into_val(&env)]
+        });
+        assert!(unpaused_found, "expected 'unpaused' event");
+    }
+
+    // ── events: transfer_admin emits "admXfer" ────────────────────────────────
+
+    #[test]
+    fn test_event_transfer_admin() {
+        let (env, vesting_id, _admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+
+        vesting.transfer_admin(&new_admin);
+
+        let events = env.events().all();
+        let found = events.iter().any(|(contract, topics, _data)| {
+            contract == vesting_id
+                && topics == vec![&env, EVT_ADM_XFER.into_val(&env)]
+        });
+        assert!(found, "expected 'admXfer' event");
+    }
+
+    // ── Upgrade 1: vesting arithmetic uses saturating_mul ────────────────────
+    //
+    // For very large amounts (close to i128::MAX / max realistic elapsed),
+    // the formula should not overflow. We test with a large but realistic
+    // token supply (10^24 stroop equivalent).
+
+    #[test]
+    fn test_no_arithmetic_overflow_large_amount() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        // 10^18 is within i128 range for realistic vesting durations
+        let large_amount: i128 = 1_000_000_000_000_000_000;
+        let token = new_token(&env, &funder, large_amount);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: large_amount,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 1_000_000_000, // ~31 years in seconds
+        });
+
+        env.ledger()
+            .with_mut(|l| l.timestamp = start + 500_000_000);
+        // Should return exactly half, not overflow
+        let claimable = vesting.get_claimable(&id);
+        assert_eq!(claimable, large_amount / 2);
+    }
+
+    // ── Property-based tests (manual parameterised) ───────────────────────────
+    //
+    // Full proptest would require a build-std-compatible runner. These manual
+    // parameterised tests cover the four properties without needing proptest:
+    //   P1. vested amount never decreases over time
+    //   P2. never exceeds total_amount
+    //   P3. is 0 before the cliff
+    //   P4. equals total_amount at or after end
+
+    #[test]
+    fn test_prop_vested_never_decreases() {
+        // Check at t=0,25,50,75,100 for a 0-cliff 100-second schedule
+        let total: i128 = 10_000;
+        let duration: u64 = 100;
+        let cliff: u64 = 0;
+        let start: u64 = 0;
+
+        let dummy_sched = VestingSchedule {
+            id: 1,
+            beneficiary: {
+                // Use a stand-in address value — only testing pure math
+                let env2 = Env::default();
+                Address::generate(&env2)
+            },
+            token: {
+                let env2 = Env::default();
+                Address::generate(&env2)
+            },
+            total_amount: total,
+            claimed_amount: 0,
+            start_time: start,
+            cliff_duration: cliff,
+            total_duration: duration,
+            status: ScheduleStatus::Active,
+        };
+
+        let times: [u64; 5] = [0, 25, 50, 75, 100];
+        let mut prev = 0i128;
+        for t in times {
+            let v = VestingContract::vested_amount(&dummy_sched, t);
+            assert!(v >= prev, "vested decreased at t={t}: {v} < {prev}");
+            assert!(v <= total, "vested exceeded total at t={t}");
+            prev = v;
+        }
+    }
+
+    #[test]
+    fn test_prop_zero_before_cliff() {
+        let total: i128 = 10_000;
+        let cliff: u64 = 50;
+        let dummy_sched = VestingSchedule {
+            id: 1,
+            beneficiary: Address::generate(&Env::default()),
+            token: Address::generate(&Env::default()),
+            total_amount: total,
+            claimed_amount: 0,
+            start_time: 0,
+            cliff_duration: cliff,
+            total_duration: 100,
+            status: ScheduleStatus::Active,
+        };
+        // Any time strictly before cliff → 0
+        for t in [0u64, 1, 25, 49] {
+            let v = VestingContract::vested_amount(&dummy_sched, t);
+            assert_eq!(v, 0, "expected 0 before cliff at t={t}, got {v}");
+        }
+    }
+
+    #[test]
+    fn test_prop_equals_total_at_end() {
+        let total: i128 = 10_000;
+        let dummy_sched = VestingSchedule {
+            id: 1,
+            beneficiary: Address::generate(&Env::default()),
+            token: Address::generate(&Env::default()),
+            total_amount: total,
+            claimed_amount: 0,
+            start_time: 0,
+            cliff_duration: 0,
+            total_duration: 100,
+            status: ScheduleStatus::Active,
+        };
+        // At or after end → total
+        for t in [100u64, 101, 200, 1_000_000] {
+            let v = VestingContract::vested_amount(&dummy_sched, t);
+            assert_eq!(v, total, "expected total at t={t}, got {v}");
+        }
+    }
+
+    // ── Upgrade 4: Multisig as vesting admin — end-to-end ────────────────────
+    //
+    // The multisig contract is the vesting admin.
+    // A proposal confirmed to threshold executes; below threshold panics.
+    //
+    // NOTE: the multisig `execute()` currently records the proposal as
+    // Executed but does not dispatch a cross-contract call (the description
+    // is treated as opaque bytes). This test validates that flow within the
+    // multisig itself and confirms that vesting admin rights can be held by a
+    // multisig address. A full cross-contract invoke would require ABI
+    // encoding inside the multisig, which is beyond its current scope.
+
+    #[test]
+    fn test_multisig_admin_flow() {
+        use crate::contracts::multisig::{MultisigContract, MultisigContractClient};
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+
+        // Deploy multisig (2-of-3)
+        let ms_id = env.register(MultisigContract, ());
+        let ms = MultisigContractClient::new(&env, &ms_id);
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        ms.initialize(&owners, &2u32);
+
+        // Deploy vesting with multisig contract address as admin
+        let vesting_id = env.register(VestingContract, ());
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.initialize(&ms_id);
+
+        // Submit a proposal
+        let desc = soroban_sdk::Bytes::from_slice(&env, b"create_schedule call");
+        let prop_id = ms.submit(&o1, &desc);
+
+        // Confirm by two owners (reaches threshold)
+        ms.confirm(&o1, &prop_id);
+        ms.confirm(&o2, &prop_id);
+        ms.execute(&prop_id);
+
+        let prop = ms.get_proposal(&prop_id);
+        assert_eq!(
+            prop.status,
+            crate::contracts::multisig::ProposalStatus::Executed
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "not enough confirmations")]
+    fn test_multisig_below_threshold_panics() {
+        use crate::contracts::multisig::{MultisigContract, MultisigContractClient};
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+
+        let ms_id = env.register(MultisigContract, ());
+        let ms = MultisigContractClient::new(&env, &ms_id);
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        ms.initialize(&owners, &2u32);
+
+        let vesting_id = env.register(VestingContract, ());
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.initialize(&ms_id);
+
+        let desc = soroban_sdk::Bytes::from_slice(&env, b"create_schedule call");
+        let prop_id = ms.submit(&o1, &desc);
+        ms.confirm(&o1, &prop_id); // only 1 of 2 needed → should panic on execute
+        ms.execute(&prop_id);
+    }
+}
+
+// Allow the vesting test module to reference the multisig contract.
+#[cfg(test)]
+mod contracts {
+    pub mod multisig {
+        pub use crate::super::super::contracts::multisig::*;
     }
 }

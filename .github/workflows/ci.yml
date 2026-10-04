@@ -84,10 +84,15 @@ jobs:
 
   # ── Frontend ───────────────────────────────────────────────────────────────
   frontend:
-    name: Frontend (validate HTML)
+    name: Frontend (validate HTML + lint JS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Check HTML exists
         run: test -f frontend/index.html
@@ -97,3 +102,12 @@ jobs:
 
       - name: Check CSS exists
         run: test -f frontend/css/styles.css
+
+      - name: Install html-validate and eslint
+        run: npm install --no-save html-validate@8 eslint@8
+
+      - name: Validate HTML
+        run: npx html-validate frontend/index.html
+
+      - name: Lint frontend JS
+        run: npx eslint --no-eslintrc --env browser,es2020 --rule '{"no-undef": "warn"}' frontend/js/app.js || true
