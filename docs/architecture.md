@@ -35,7 +35,7 @@
 
 1. **Token → Vesting**: `create_schedule` calls `token.transfer` to pull funds into the vesting contract.
 2. **Vesting → Token**: `claim` and `revoke` call `token.transfer` to release funds.
-3. **Multisig → Any**: The multisig `execute` function records a proposal as executed once threshold confirmations are reached. Dispatching the actual admin call to the token or vesting contract requires encoding the target function call in the proposal description and wiring the execute logic accordingly — this is not implemented in the current multisig contract.
+3. **Multisig → Any**: `execute()` dispatches the proposal action. `ProposalAction::Call` makes a real cross-contract call via `env.invoke_contract` to any target contract. `ProposalAction::AddOwner`, `RemoveOwner`, and `UpdateThreshold` are handled internally inside `execute()` — no cross-contract call is made for these variants. There are no public `add_owner`, `remove_owner`, or `update_threshold` entry points; every change to the owner set must go through a fully-confirmed proposal.
 
 ## Signing model
 

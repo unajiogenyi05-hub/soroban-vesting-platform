@@ -18,17 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revoke_drops_below_threshold_then_reconfirm_executes. (PR #30)
 - README.md: "Status and limitations" table listing audit status, backend stub
   behaviour, missing wallet integration, proptest status, multisig execute
-  limitation, and mainnet recommendation.
+  status, and mainnet recommendation.
 - docs/architecture.md: signing model section clarifying that the backend does
-  not hold private keys or submit transactions; multisig execute limitation noted.
+  not hold private keys or submit transactions.
 - contracts/vesting/src/lib.rs: manual parameterised tests for four vesting
   math properties (vested never decreases, never exceeds total, zero before
   cliff, equals total at or after end).
-- contracts/vesting/src/lib.rs: multisig-as-admin end-to-end test
-  (test_multisig_admin_flow): multisig contract is the vesting admin; a proposal
-  confirmed to threshold executes; execution below threshold panics with "not
-  enough confirmations". Note: execute() does not dispatch a cross-contract call;
-  the test validates the multisig flow only.
+- contracts/vesting/src/lib.rs: multisig-as-admin end-to-end tests
+  (test_multisig_admin_flow, test_multisig_below_threshold_panics): multisig
+  contract is the vesting admin; a proposal confirmed to threshold executes via
+  a real cross-contract call; execution below threshold panics with "not enough
+  confirmations".
 - contracts/vesting/src/lib.rs: events emitted for create_schedule, claim,
   revoke, pause/unpause, transfer_admin; tests assert events are published.
 - contracts/token/src/lib.rs: events emitted for mint, burn, transfer, approve,
@@ -40,6 +40,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revocation, token pause, replay, TTL expiry; signing model documentation.
 - .github/workflows/ci.yml: frontend job extended with html-validate and
   eslint steps.
+
+### Fixed (2026-10-04) — Task A: multisig owner management authorization
+
+- contracts/multisig/src/lib.rs: critical authorization bug fixed. `add_owner`,
+  `remove_owner`, and `update_threshold` had no `require_auth` and no caller
+  check — any account could add themselves as owner and lower the threshold to 1,
+  gaining full control of any contract the multisig administers.
+- contracts/multisig/src/lib.rs: introduced `ProposalAction` enum
+  (`Call(CallData)`, `AddOwner(Address)`, `RemoveOwner(Address)`,
+  `UpdateThreshold(u32)`) replacing the flat `(target, function, args)` fields
+  on `ProposalData`. Owner management variants are handled directly inside
+  `execute()` — no public entry points exist for `add_owner`, `remove_owner`,
+  or `update_threshold`.
+- contracts/multisig/src/lib.rs: `execute()` now dispatches `ProposalAction::Call`
+  via `env.invoke_contract`, and internal variants (`AddOwner`, `RemoveOwner`,
+  `UpdateThreshold`) directly — no cross-contract call is issued for internal
+  actions (Soroban disallows self-invocation).
+- contracts/multisig/src/lib.rs: when `RemoveOwner` executes, existing
+  confirmations by the removed owner on pending proposals are cleared and
+  `confirmation_count` is decremented, keeping threshold accounting accurate.
+- contracts/multisig/src/lib.rs: 28 tests total (was 24); new tests:
+  `test_outsider_cannot_add_owner`, `test_outsider_cannot_remove_owner`,
+  `test_outsider_cannot_update_threshold` (prove the bug pre-fix; pass after fix),
+  `test_owner_management_only_via_proposal`, `test_remove_owner_only_via_proposal`,
+  `test_update_threshold_only_via_proposal`, `test_self_call_reentrance_fails`,
+  `test_remove_owner_clears_confirmations`.
+- contracts/vesting/src/lib.rs: updated `test_multisig_admin_flow`,
+  `test_multisig_below_threshold_panics` to use new `ProposalAction` API.
+- contracts/vesting/src/lib.rs: added `test_multisig_create_schedule` — end-to-end
+  test where the multisig (as vesting admin) calls `create_schedule` with a real
+  token; asserts token balances, schedule count, and beneficiary can claim.
+- README.md, docs/architecture.md: updated to describe the actual implemented
+  behaviour; removed stale statements about execute() not dispatching calls.
 
 ### Changed (2026-10-04)
 
