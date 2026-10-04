@@ -1355,3 +1355,348 @@ mod tests {
         assert_eq!(token_client.balance(&beneficiary), 100_000);
     }
 }
+
+// ─── Task C: end-to-end tests using the real token contract ──────────────────
+//
+// These tests import the real `token::TokenContract` (added as a dev-dependency)
+// instead of the Stellar asset contract helper.  The token is deployed, minted
+// to a funder, and the funder approves the vesting contract to pull tokens via
+// `create_schedule`.  Every test asserts exact balances and checks that the
+// invariant `funder_out == beneficiary_in + treasury_in` holds (conservation of
+// total supply).
+//
+// The vesting contract calls `token::Client::new(&env, &token_addr).transfer(from, vesting, amount)`
+// inside `create_schedule`, which requires `from.require_auth()`.
+// `env.mock_all_auths_allowing_non_root_auth()` satisfies all auth requirements.
+
+#[cfg(test)]
+mod e2e_token_tests {
+    use super::*;
+    use ::token::{TokenContract, TokenContractClient};
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger},
+        Env, String,
+    };
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    /// Deploy the real token contract, initialize it with `supply` minted to
+    /// `admin`, and return (token_address, client).
+    fn deploy_token<'a>(
+        env: &'a Env,
+        admin: &Address,
+        supply: i128,
+    ) -> (Address, TokenContractClient<'a>) {
+        let token_id = env.register(TokenContract, ());
+        let token = TokenContractClient::new(env, &token_id);
+        token.initialize(
+            admin,
+            &String::from_str(env, "Test Token"),
+            &String::from_str(env, "TT"),
+            &7u32,
+            &supply,
+        );
+        (token_id, token)
+    }
+
+    /// Deploy vesting with `admin` and return client.
+    fn deploy_vesting<'a>(env: &'a Env, admin: &Address) -> (Address, VestingContractClient<'a>) {
+        let id = env.register(VestingContract, ());
+        let v = VestingContractClient::new(env, &id);
+        v.initialize(admin);
+        (id, v)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // C-1: create_schedule pulls tokens; claim at several timestamps
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// create_schedule transfers `total_amount` from funder to the vesting
+    /// contract; claims at t=25, t=50, t=100 return the correct incremental
+    /// amounts with exact balance assertions.
+    #[test]
+    fn test_e2e_create_and_claim_partial_then_full() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let admin = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+
+        let (token_addr, token) = deploy_token(&env, &admin, 100_000);
+        let (vesting_id, vesting) = deploy_vesting(&env, &admin);
+
+        let start = env.ledger().timestamp();
+
+        // admin is funder; 100 000 tokens minted to admin
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: admin.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // After create: all tokens are in vesting contract.
+        assert_eq!(token.balance(&admin), 0);
+        assert_eq!(token.balance(&vesting_id), 100_000);
+
+        // t=25 → 25 000 claimable
+        env.ledger().with_mut(|l| l.timestamp = start + 25);
+        assert_eq!(vesting.get_claimable(&id), 25_000);
+        let c1 = vesting.claim(&id);
+        assert_eq!(c1, 25_000);
+        assert_eq!(token.balance(&beneficiary), 25_000);
+        assert_eq!(token.balance(&vesting_id), 75_000);
+
+        // t=50 → 25 000 more claimable (50 000 total vested − 25 000 claimed)
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(vesting.get_claimable(&id), 25_000);
+        let c2 = vesting.claim(&id);
+        assert_eq!(c2, 25_000);
+        assert_eq!(token.balance(&beneficiary), 50_000);
+        assert_eq!(token.balance(&vesting_id), 50_000);
+
+        // t=100 → fully vested
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        assert_eq!(vesting.get_claimable(&id), 50_000);
+        let c3 = vesting.claim(&id);
+        assert_eq!(c3, 50_000);
+        assert_eq!(token.balance(&beneficiary), 100_000);
+        assert_eq!(token.balance(&vesting_id), 0);
+
+        // Schedule is Completed; nothing left to claim
+        assert_eq!(vesting.get_schedule(&id).status, ScheduleStatus::Completed);
+
+        // Conservation: total minted == beneficiary received
+        assert_eq!(token.total_supply(), 100_000);
+        assert_eq!(token.balance(&beneficiary), 100_000);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // C-2: claim after cliff
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// With a cliff, nothing is claimable before the cliff; the full linear
+    /// amount is available at and after it.
+    #[test]
+    fn test_e2e_cliff_gates_claim() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let admin = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+
+        let (token_addr, token) = deploy_token(&env, &admin, 200_000);
+        let (_vesting_id, vesting) = deploy_vesting(&env, &admin);
+
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: admin.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr,
+            total_amount: 200_000,
+            start_time: start,
+            cliff_duration: 50,
+            total_duration: 200,
+        });
+
+        // Before cliff: nothing claimable
+        env.ledger().with_mut(|l| l.timestamp = start + 49);
+        assert_eq!(vesting.get_claimable(&id), 0);
+
+        // At cliff (t=50): elapsed=50, total=200 → 50/200 * 200 000 = 50 000
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(vesting.get_claimable(&id), 50_000);
+        let claimed = vesting.claim(&id);
+        assert_eq!(claimed, 50_000);
+        assert_eq!(token.balance(&beneficiary), 50_000);
+
+        // At end (t=200): 150 000 more available
+        env.ledger().with_mut(|l| l.timestamp = start + 200);
+        let claimed2 = vesting.claim(&id);
+        assert_eq!(claimed2, 150_000);
+        assert_eq!(token.balance(&beneficiary), 200_000);
+
+        // Conservation
+        assert_eq!(token.total_supply(), 200_000);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // C-3: revoke splits vested (→ beneficiary) and unvested (→ treasury)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// At t=30 (30% vested, 0 claimed): revoke pays 30 000 to beneficiary
+    /// and returns 70 000 to treasury.  Total supply is conserved.
+    #[test]
+    fn test_e2e_revoke_splits_correctly() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let admin = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let (token_addr, token) = deploy_token(&env, &admin, 100_000);
+        let (vesting_id, vesting) = deploy_vesting(&env, &admin);
+
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: admin.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Admin has 0 after funding vesting contract
+        assert_eq!(token.balance(&admin), 0);
+        assert_eq!(token.balance(&vesting_id), 100_000);
+
+        // t=30: 30 000 vested, 0 claimed
+        env.ledger().with_mut(|l| l.timestamp = start + 30);
+
+        let returned = vesting.revoke(&id, &treasury);
+        assert_eq!(returned, 70_000); // unvested → treasury
+
+        // Beneficiary received the vested 30 000 automatically on revoke
+        assert_eq!(token.balance(&beneficiary), 30_000);
+        assert_eq!(token.balance(&treasury), 70_000);
+        assert_eq!(token.balance(&vesting_id), 0);
+
+        // Conservation
+        assert_eq!(token.total_supply(), 100_000);
+        assert_eq!(
+            token.balance(&beneficiary) + token.balance(&treasury),
+            100_000
+        );
+
+        // Schedule is Revoked
+        assert_eq!(vesting.get_schedule(&id).status, ScheduleStatus::Revoked);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // C-4: revoke after partial claim — only unclaimed vested goes to beneficiary
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Beneficiary claims 20 000 at t=20, then admin revokes at t=40.
+    /// Revoke pays the additional 20 000 vested-but-unclaimed to beneficiary
+    /// and 60 000 unvested to treasury.
+    #[test]
+    fn test_e2e_revoke_after_partial_claim() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let admin = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let (token_addr, token) = deploy_token(&env, &admin, 100_000);
+        let (vesting_id, vesting) = deploy_vesting(&env, &admin);
+
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: admin.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Claim 20 000 at t=20
+        env.ledger().with_mut(|l| l.timestamp = start + 20);
+        let claimed = vesting.claim(&id);
+        assert_eq!(claimed, 20_000);
+        assert_eq!(token.balance(&beneficiary), 20_000);
+        assert_eq!(token.balance(&vesting_id), 80_000);
+
+        // Revoke at t=40: vested=40 000, claimed=20 000 → pays 20 000 to bene, 60 000 to treasury
+        env.ledger().with_mut(|l| l.timestamp = start + 40);
+        let returned = vesting.revoke(&id, &treasury);
+        assert_eq!(returned, 60_000); // unvested
+
+        assert_eq!(token.balance(&beneficiary), 40_000); // 20k claimed + 20k from revoke
+        assert_eq!(token.balance(&treasury), 60_000);
+        assert_eq!(token.balance(&vesting_id), 0);
+
+        // Conservation: 20k + 20k + 60k = 100k
+        assert_eq!(
+            token.balance(&beneficiary) + token.balance(&treasury),
+            100_000
+        );
+        assert_eq!(token.total_supply(), 100_000);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // C-5: total supply conservation across multiple schedules
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Two schedules for different beneficiaries.  After both fully vest and
+    /// claim, the sum of beneficiary balances equals the total minted supply.
+    /// No tokens are created or destroyed.
+    #[test]
+    fn test_e2e_total_supply_conservation() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let admin = Address::generate(&env);
+        let b1 = Address::generate(&env);
+        let b2 = Address::generate(&env);
+
+        // Mint 300 000 total; 100 000 for b1, 200 000 for b2
+        let (token_addr, token) = deploy_token(&env, &admin, 300_000);
+        let (vesting_id, vesting) = deploy_vesting(&env, &admin);
+
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: admin.clone(),
+            beneficiary: b1.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: admin.clone(),
+            beneficiary: b2.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 200_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // All tokens moved into vesting
+        assert_eq!(token.balance(&admin), 0);
+        assert_eq!(token.balance(&vesting_id), 300_000);
+
+        // Advance past full duration and claim both
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+
+        let c1 = vesting.claim(&id1);
+        let c2 = vesting.claim(&id2);
+        assert_eq!(c1, 100_000);
+        assert_eq!(c2, 200_000);
+
+        // Vesting contract holds nothing
+        assert_eq!(token.balance(&vesting_id), 0);
+
+        // Exact balances
+        assert_eq!(token.balance(&b1), 100_000);
+        assert_eq!(token.balance(&b2), 200_000);
+
+        // Conservation: no tokens created or destroyed
+        assert_eq!(token.total_supply(), 300_000);
+        assert_eq!(token.balance(&b1) + token.balance(&b2), 300_000);
+    }
+}
