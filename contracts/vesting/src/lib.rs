@@ -1167,12 +1167,10 @@ mod tests {
     // The multisig contract is the vesting admin.
     // A proposal confirmed to threshold executes; below threshold panics.
     //
-    // NOTE: the multisig `execute()` currently records the proposal as
-    // Executed but does not dispatch a cross-contract call (the description
-    // is treated as opaque bytes). This test validates that flow within the
-    // multisig itself and confirms that vesting admin rights can be held by a
-    // multisig address. A full cross-contract invoke would require ABI
-    // encoding inside the multisig, which is beyond its current scope.
+    // execute() dispatches a real cross-contract call: the multisig invokes
+    // vesting.pause() and the call succeeds because the multisig contract
+    // address is the vesting admin (admin.require_auth() is satisfied when
+    // the call originates from that contract).
 
     #[test]
     fn test_multisig_admin_flow() {
@@ -1199,17 +1197,27 @@ mod tests {
         let vesting = VestingContractClient::new(&env, &vesting_id);
         vesting.initialize(&ms_id);
 
-        // Submit a proposal
-        let desc = soroban_sdk::Bytes::from_slice(&env, b"create_schedule call");
-        let prop_id = ms.submit(&o1, &desc);
+        // Submit a proposal that calls vesting.pause() through the multisig.
+        // The multisig contract is the vesting admin so its invocation
+        // satisfies admin.require_auth() inside pause().
+        let id = ms.submit(
+            &o1,
+            &vesting_id,
+            &soroban_sdk::symbol_short!("pause"),
+            &soroban_sdk::Vec::new(&env),
+            &soroban_sdk::String::from_str(&env, "pause vesting via multisig"),
+        );
 
         // Confirm by two owners (reaches threshold)
-        ms.confirm(&o1, &prop_id);
-        ms.confirm(&o2, &prop_id);
-        ms.execute(&prop_id);
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
 
-        let prop = ms.get_proposal(&prop_id);
+        let prop = ms.get_proposal(&id);
         assert_eq!(prop.status, multisig::ProposalStatus::Executed);
+        // The vesting contract should now be paused, confirming the
+        // cross-contract call was actually dispatched.
+        assert!(vesting.is_paused());
     }
 
     #[test]
@@ -1236,9 +1244,14 @@ mod tests {
         let vesting = VestingContractClient::new(&env, &vesting_id);
         vesting.initialize(&ms_id);
 
-        let desc = soroban_sdk::Bytes::from_slice(&env, b"create_schedule call");
-        let prop_id = ms.submit(&o1, &desc);
-        ms.confirm(&o1, &prop_id); // only 1 of 2 needed → should panic on execute
-        ms.execute(&prop_id);
+        let id = ms.submit(
+            &o1,
+            &vesting_id,
+            &soroban_sdk::symbol_short!("pause"),
+            &soroban_sdk::Vec::new(&env),
+            &soroban_sdk::String::from_str(&env, "pause vesting"),
+        );
+        ms.confirm(&o1, &id); // only 1 of 2 needed -> should panic on execute
+        ms.execute(&id);
     }
 }
