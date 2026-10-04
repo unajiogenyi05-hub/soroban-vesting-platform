@@ -425,4 +425,211 @@ mod tests {
         let stranger = Address::generate(&env);
         assert!(!ms.is_owner(&stranger));
     }
+
+    // ── 2.1 new tests ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_update_threshold() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        assert_eq!(ms.get_threshold(), 2);
+        ms.update_threshold(&1u32);
+        assert_eq!(ms.get_threshold(), 1);
+        // raise it back to 3 (all owners must confirm)
+        ms.update_threshold(&3u32);
+        assert_eq!(ms.get_threshold(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid threshold")]
+    fn test_update_threshold_zero_panics() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        ms.update_threshold(&0u32);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid threshold")]
+    fn test_update_threshold_exceeds_owners_panics() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        // 3 owners, threshold 4 is invalid
+        ms.update_threshold(&4u32);
+    }
+
+    #[test]
+    fn test_add_owner() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let new_owner = Address::generate(&env);
+        assert!(!ms.is_owner(&new_owner));
+
+        ms.add_owner(&new_owner);
+
+        assert!(ms.is_owner(&new_owner));
+        assert_eq!(ms.get_owners().len(), 4);
+    }
+
+    #[test]
+    #[should_panic(expected = "already an owner")]
+    fn test_add_owner_duplicate_panics() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        ms.add_owner(&o1); // o1 is already an owner
+    }
+
+    #[test]
+    fn test_remove_owner() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        // Add a 4th owner so we can safely remove one (4 owners, threshold 2)
+        let o4 = Address::generate(&env);
+        ms.add_owner(&o4);
+        assert_eq!(ms.get_owners().len(), 4);
+
+        ms.remove_owner(&o1);
+
+        assert!(!ms.is_owner(&o1));
+        assert_eq!(ms.get_owners().len(), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot remove: would breach threshold")]
+    fn test_remove_owner_below_threshold_panics() {
+        // 3 owners, threshold 2 → len(3) <= threshold(2) is false, so remove
+        // would leave 2 owners and threshold 2 — that is exactly at threshold,
+        // which is still valid (len > threshold check: 3 <= 2 is false).
+        // Use threshold=3 so that removing any owner breaches it.
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+
+        let contract_id = env.register(MultisigContract, ());
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let mut owners = Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        ms.initialize(&owners, &3u32); // threshold == owner count
+
+        // Removing any owner would leave 2 < threshold(3) → panic
+        ms.remove_owner(&o1);
+    }
+
+    #[test]
+    #[should_panic(expected = "already confirmed")]
+    fn test_double_confirm_panics() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"test"));
+        ms.confirm(&o1, &id);
+        ms.confirm(&o1, &id); // second confirm by same owner must panic
+    }
+
+    #[test]
+    #[should_panic(expected = "not an owner")]
+    fn test_non_owner_submit_panics() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let stranger = Address::generate(&env);
+        ms.submit(&stranger, &Bytes::from_slice(&env, b"test"));
+    }
+
+    #[test]
+    #[should_panic(expected = "not an owner")]
+    fn test_non_owner_confirm_panics() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"test"));
+        let stranger = Address::generate(&env);
+        ms.confirm(&stranger, &id); // stranger is not an owner
+    }
+
+    #[test]
+    fn test_execute_by_non_owner_succeeds_when_threshold_met() {
+        // execute() has no owner restriction — anyone can execute if threshold met
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"test"));
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+
+        // A stranger (non-owner) calls execute — this must succeed
+        // (execute has no require_owner check)
+        ms.execute(&id);
+        let prop = ms.get_proposal(&id);
+        assert_eq!(prop.status, ProposalStatus::Executed);
+    }
+
+    #[test]
+    #[should_panic(expected = "proposal not pending")]
+    fn test_execute_twice_panics() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"test"));
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+        ms.execute(&id); // second execute must panic
+    }
+
+    #[test]
+    fn test_cancel_by_proposer() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"cancel me"));
+        ms.cancel(&o1, &id);
+
+        let prop = ms.get_proposal(&id);
+        assert_eq!(prop.status, ProposalStatus::Cancelled);
+    }
+
+    #[test]
+    #[should_panic(expected = "only proposer can cancel")]
+    fn test_cancel_by_non_proposer_panics() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"test"));
+        ms.cancel(&o2, &id); // o2 is not the proposer
+    }
+
+    #[test]
+    fn test_revoke_drops_below_threshold_then_reconfirm_executes() {
+        // o1 and o2 confirm (meets threshold=2). o2 revokes → count=1, below threshold.
+        // Execute must fail. o2 re-confirms → count=2 again, execute succeeds.
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let id = ms.submit(&o1, &Bytes::from_slice(&env, b"test"));
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+
+        // Revoke o2's confirmation — drops below threshold
+        ms.revoke_confirmation(&o2, &id);
+        let prop = ms.get_proposal(&id);
+        assert_eq!(prop.confirmation_count, 1);
+
+        // Attempting execute here would panic "not enough confirmations"
+        // (we don't call it here to keep this test a success path)
+
+        // Re-confirm — back to threshold
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+        let prop2 = ms.get_proposal(&id);
+        assert_eq!(prop2.status, ProposalStatus::Executed);
+    }
 }
