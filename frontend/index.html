@@ -1,25 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Soroban Vesting Platform</title>
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <!-- ── Header ─────────────────────────────────────────────────────────── -->
-  <header class="header" role="banner">
+  <header class="header">
     <div class="header__inner">
       <div class="header__brand">
         <span class="header__logo" aria-hidden="true">◈</span>
         <span class="header__title">Soroban Vesting</span>
         <span class="header__badge" id="networkBadge">Testnet</span>
       </div>
-      <nav class="header__nav" role="navigation" aria-label="Main navigation">
-        <button class="nav-btn active" data-tab="dashboard" aria-selected="true">Dashboard</button>
-        <button class="nav-btn" data-tab="vesting" aria-selected="false">Vesting</button>
-        <button class="nav-btn" data-tab="token" aria-selected="false">Token</button>
-        <button class="nav-btn" data-tab="multisig" aria-selected="false">Multisig</button>
+      <nav class="header__nav" aria-label="Main navigation">
+        <button class="nav-btn active" type="button" data-tab="dashboard" aria-selected="true">Dashboard</button>
+        <button class="nav-btn" type="button" data-tab="vesting" aria-selected="false">Vesting</button>
+        <button class="nav-btn" type="button" data-tab="token" aria-selected="false">Token</button>
+        <button class="nav-btn" type="button" data-tab="multisig" aria-selected="false">Multisig</button>
       </nav>
       <div class="header__status">
         <span class="status-dot" id="apiStatusDot" aria-hidden="true"></span>
@@ -29,7 +29,7 @@
   </header>
 
   <!-- ── Main ───────────────────────────────────────────────────────────── -->
-  <main class="main" id="main" role="main">
+  <main class="main" id="main">
 
     <!-- Dashboard tab -->
     <section class="tab-panel" id="tab-dashboard" aria-label="Dashboard">
@@ -71,20 +71,20 @@
           <div class="address-row">
             <span class="address-label">Vesting</span>
             <input class="address-input" id="vestingContractId" type="text"
-              placeholder="C…" aria-label="Vesting contract ID" />
+              placeholder="C…" aria-label="Vesting contract ID">
           </div>
           <div class="address-row">
             <span class="address-label">Token</span>
             <input class="address-input" id="tokenContractId" type="text"
-              placeholder="C…" aria-label="Token contract ID" />
+              placeholder="C…" aria-label="Token contract ID">
           </div>
           <div class="address-row">
             <span class="address-label">Multisig</span>
             <input class="address-input" id="multisigContractId" type="text"
-              placeholder="C…" aria-label="Multisig contract ID" />
+              placeholder="C…" aria-label="Multisig contract ID">
           </div>
         </div>
-        <button class="btn btn--primary" id="saveAddresses">Save &amp; Refresh</button>
+        <button class="btn btn--primary" type="button" id="saveAddresses">Save &amp; Refresh</button>
       </div>
     </section>
 
@@ -98,27 +98,27 @@
         <form id="createScheduleForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="cs-from">Funder Address</label>
-            <input class="form-input" id="cs-from" type="text" placeholder="G…" required />
+            <input class="form-input" id="cs-from" type="text" placeholder="G…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="cs-beneficiary">Beneficiary</label>
-            <input class="form-input" id="cs-beneficiary" type="text" placeholder="G…" required />
+            <input class="form-input" id="cs-beneficiary" type="text" placeholder="G…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="cs-token">Token Address</label>
-            <input class="form-input" id="cs-token" type="text" placeholder="C…" required />
+            <input class="form-input" id="cs-token" type="text" placeholder="C…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="cs-amount">Total Amount</label>
-            <input class="form-input" id="cs-amount" type="number" min="1" placeholder="1000000" required />
+            <input class="form-input" id="cs-amount" type="number" min="1" placeholder="1000000" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="cs-cliff">Cliff (seconds)</label>
-            <input class="form-input" id="cs-cliff" type="number" min="0" value="0" />
+            <input class="form-input" id="cs-cliff" type="number" min="0" value="0">
           </div>
           <div class="form-row">
             <label class="form-label" for="cs-duration">Total Duration (seconds)</label>
-            <input class="form-input" id="cs-duration" type="number" min="1" placeholder="2592000" required />
+            <input class="form-input" id="cs-duration" type="number" min="1" placeholder="2592000" required>
           </div>
           <button type="submit" class="btn btn--primary">Create Schedule</button>
           <div class="form-result" id="createScheduleResult" role="status" aria-live="polite"></div>
@@ -131,11 +131,11 @@
         <form id="claimForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="claim-id">Schedule ID</label>
-            <input class="form-input" id="claim-id" type="number" min="1" placeholder="1" required />
+            <input class="form-input" id="claim-id" type="number" min="1" placeholder="1" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="claim-beneficiary">Beneficiary</label>
-            <input class="form-input" id="claim-beneficiary" type="text" placeholder="G…" required />
+            <input class="form-input" id="claim-beneficiary" type="text" placeholder="G…" required>
           </div>
           <div class="btn-group">
             <button type="button" class="btn btn--secondary" id="checkClaimableBtn">Check Claimable</button>
@@ -151,11 +151,11 @@
         <form id="revokeForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="revoke-id">Schedule ID</label>
-            <input class="form-input" id="revoke-id" type="number" min="1" placeholder="1" required />
+            <input class="form-input" id="revoke-id" type="number" min="1" placeholder="1" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="revoke-recipient">Return Recipient</label>
-            <input class="form-input" id="revoke-recipient" type="text" placeholder="G…" required />
+            <input class="form-input" id="revoke-recipient" type="text" placeholder="G…" required>
           </div>
           <button type="submit" class="btn btn--danger">Revoke</button>
           <div class="form-result" id="revokeResult" role="status" aria-live="polite"></div>
@@ -169,7 +169,7 @@
 
       <div class="section-card">
         <h2 class="section-card__title">Token Info</h2>
-        <button class="btn btn--secondary" id="loadTokenInfoBtn">Load Info</button>
+        <button class="btn btn--secondary" type="button" id="loadTokenInfoBtn">Load Info</button>
         <div class="info-grid" id="tokenInfoGrid"></div>
       </div>
 
@@ -178,7 +178,7 @@
         <form id="balanceForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="bal-addr">Address</label>
-            <input class="form-input" id="bal-addr" type="text" placeholder="G…" required />
+            <input class="form-input" id="bal-addr" type="text" placeholder="G…" required>
           </div>
           <button type="submit" class="btn btn--secondary">Check</button>
           <div class="form-result" id="balanceResult" role="status" aria-live="polite"></div>
@@ -190,11 +190,11 @@
         <form id="mintForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="mint-to">To Address</label>
-            <input class="form-input" id="mint-to" type="text" placeholder="G…" required />
+            <input class="form-input" id="mint-to" type="text" placeholder="G…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="mint-amount">Amount</label>
-            <input class="form-input" id="mint-amount" type="number" min="1" required />
+            <input class="form-input" id="mint-amount" type="number" min="1" required>
           </div>
           <button type="submit" class="btn btn--primary">Mint</button>
           <div class="form-result" id="mintResult" role="status" aria-live="polite"></div>
@@ -206,15 +206,15 @@
         <form id="transferForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="tf-from">From</label>
-            <input class="form-input" id="tf-from" type="text" placeholder="G…" required />
+            <input class="form-input" id="tf-from" type="text" placeholder="G…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="tf-to">To</label>
-            <input class="form-input" id="tf-to" type="text" placeholder="G…" required />
+            <input class="form-input" id="tf-to" type="text" placeholder="G…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="tf-amount">Amount</label>
-            <input class="form-input" id="tf-amount" type="number" min="1" required />
+            <input class="form-input" id="tf-amount" type="number" min="1" required>
           </div>
           <button type="submit" class="btn btn--primary">Transfer</button>
           <div class="form-result" id="transferResult" role="status" aria-live="polite"></div>
@@ -231,7 +231,7 @@
         <form id="submitProposalForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="prop-proposer">Proposer</label>
-            <input class="form-input" id="prop-proposer" type="text" placeholder="G…" required />
+            <input class="form-input" id="prop-proposer" type="text" placeholder="G…" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="prop-desc">Description</label>
@@ -248,25 +248,27 @@
         <form id="confirmForm" class="form" novalidate>
           <div class="form-row">
             <label class="form-label" for="conf-id">Proposal ID</label>
-            <input class="form-input" id="conf-id" type="number" min="1" required />
+            <input class="form-input" id="conf-id" type="number" min="1" required>
           </div>
           <div class="form-row">
             <label class="form-label" for="conf-owner">Owner Address</label>
-            <input class="form-input" id="conf-owner" type="text" placeholder="G…" required />
+            <input class="form-input" id="conf-owner" type="text" placeholder="G…" required>
           </div>
           <div class="btn-group">
             <button type="button" class="btn btn--primary" id="confirmBtn">Confirm</button>
             <button type="button" class="btn btn--secondary" id="revokeConfirmBtn">Revoke Confirm</button>
             <button type="button" class="btn btn--primary" id="executeBtn">Execute</button>
           </div>
+          <!-- hidden submit to satisfy wcag/h32 -->
+          <button type="submit" class="btn--hidden" aria-hidden="true" tabindex="-1"></button>
           <div class="form-result" id="confirmResult" role="status" aria-live="polite"></div>
         </form>
       </div>
 
       <div class="section-card">
         <h2 class="section-card__title">Owners</h2>
-        <button class="btn btn--secondary" id="loadOwnersBtn">Load Owners</button>
-        <ul class="owners-list" id="ownersList" aria-label="Owner addresses"></ul>
+        <button class="btn btn--secondary" type="button" id="loadOwnersBtn">Load Owners</button>
+        <ul class="owners-list" id="ownersList"></ul>
       </div>
     </section>
 
