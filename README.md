@@ -270,6 +270,20 @@ can be developed independently of a live deployment.
 
 ---
 
+## Status and limitations
+
+| Item | Status |
+|------|--------|
+| Smart contracts | Unaudited. Do not deploy with real value without a professional audit. |
+| Backend API | Returns documented stubs for all mutating operations until contract IDs and a signing setup are configured. Does not hold private keys. |
+| Frontend | Calls the backend API. No wallet (Freighter) integration. |
+| proptest | Not used. Property-based tests are manual parameterised tables. |
+| Testnet deployment | No contract IDs exist in this repo. Run `scripts/demo-testnet.sh` to deploy your own. |
+| Multisig execute | The multisig contract records proposals as Executed but does not dispatch cross-contract admin calls. The encoding of `description` bytes into actual contract invocations is not implemented. |
+| Mainnet | Not recommended. No audit, no mainnet deployment. |
+
+---
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the vulnerability disclosure policy and
