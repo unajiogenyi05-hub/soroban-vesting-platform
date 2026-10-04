@@ -72,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test where the multisig (as vesting admin) calls `create_schedule` with a real
   token; asserts token balances, schedule count, and beneficiary can claim.
 - README.md, docs/architecture.md: updated to describe the actual implemented
-  behaviour; removed stale statements about execute() not dispatching calls.
+  behaviour.
 
 ### Changed (2026-10-04)
 
