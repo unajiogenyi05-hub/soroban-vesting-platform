@@ -546,29 +546,27 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Authorization proof tests (no mock_all_auths)
+    // Authorization proof tests
     //
-    // These tests prove that owner management is ONLY possible via an executed
-    // proposal.  Direct calls to a function that could change the owner set
-    // are simply not possible any more — there are no such public functions.
-    // The tests below demonstrate that:
-    //   1. An outsider cannot alter the owner set (no public entry point exists).
-    //   2. Owner management via proposal requires threshold confirmations.
-    //   3. A self-call (re-entrancy) fails because Soroban disallows it.
+    // These tests prove that owner management is ONLY possible via a proposal
+    // that has reached the confirmation threshold.  There are no public entry
+    // points for add_owner / remove_owner / update_threshold; the only way to
+    // trigger them is through execute() after threshold confirmations.
+    //
+    //   1. Owner management actions require threshold confirmations — an
+    //      under-confirmed proposal panics with "not enough confirmations".
+    //   2. A fully-confirmed proposal succeeds and mutates state.
+    //   3. A self-call (re-entrancy) traps — Soroban disallows it.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// An outsider attempting add_owner via a proposal that has NOT reached
-    /// threshold must fail — execute() panics with "not enough confirmations".
+    /// AddOwner proposals require threshold confirmations.
+    /// A proposal submitted but confirmed only once (below a threshold of 2)
+    /// must panic with "not enough confirmations" when execute() is called.
     #[test]
     #[should_panic(expected = "not enough confirmations")]
-    fn test_outsider_cannot_add_owner() {
-        // Real auth — no mock_all_auths.
+    fn test_add_owner_requires_threshold() {
         let env = Env::default();
-        env.mock_all_auths(); // owners need auth for submit/confirm; execute is permissionless
-                              // We use mock_all_auths here only to satisfy owner auth for submit/confirm.
-                              // The authorization *of the owner management action itself* is governed
-                              // entirely by the threshold: the call will be rejected if threshold is
-                              // not met, regardless of who calls execute().
+        env.mock_all_auths(); // satisfies require_auth on submit/confirm; execute is permissionless
 
         let o1 = Address::generate(&env);
         let o2 = Address::generate(&env);
@@ -580,14 +578,13 @@ mod tests {
         ms.initialize(&owners, &2); // threshold = 2
 
         let new_owner = Address::generate(&env);
-        // Submit but only confirm once (threshold = 2).
         let id = ms.submit(
             &o1,
             &ProposalAction::AddOwner(new_owner.clone()),
-            &String::from_str(&env, "add outsider"),
+            &String::from_str(&env, "add owner"),
         );
         ms.confirm(&o1, &id);
-        // Only 1 of 2 confirmations — must panic.
+        // Only 1 of 2 confirmations — must panic with "not enough confirmations".
         ms.execute(&id);
     }
 
