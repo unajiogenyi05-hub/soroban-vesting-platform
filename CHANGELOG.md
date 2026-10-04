@@ -59,9 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (2026-10-04)
 - README.md: layout tree corrected to match the repo; wording updated
-  (replaced "production-ready" with "reference implementation, unaudited,
-  testnet-ready"); multisig-as-admin flow described; testnet-demo section
-  updated to reflect what scripts/demo-testnet.sh actually does.
+  to "reference implementation, unaudited, testnet-ready"; multisig-as-admin
+  flow described; testnet-demo section updated to reflect what
+  scripts/demo-testnet.sh actually does.
 - backend/package.json: removed --passWithNoTests flag from jest invocation.
 - SECURITY.md: rewritten to be specific to this repo with real commands,
   threat model, and signing architecture.
