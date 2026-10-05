@@ -90,12 +90,15 @@ pub struct VestingContract;
 
 #[contractimpl]
 impl VestingContract {
-    // ── Admin init ──────────────────────────────────────────────────────────
+    // ── Constructor ─────────────────────────────────────────────────────────
 
-    pub fn initialize(env: Env, admin: Address) {
-        if env.storage().instance().has(&ADMIN) {
-            panic!("already initialized");
-        }
+    /// Constructor: set the admin address at deploy time.
+    ///
+    /// Called automatically at deploy time — there is no separate
+    /// `initialize` step.  Because the constructor runs atomically with
+    /// deployment the front-running window that existed with a two-step
+    /// initialize() is eliminated.
+    pub fn __constructor(env: Env, admin: Address) {
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&PAUSED, &false);
         env.storage().instance().set(&SCHED_ID, &0u64);
@@ -409,9 +412,7 @@ mod tests {
         let asset_client = StellarAssetClient::new(&env, &token_address);
         asset_client.mint(&funder, &1_000_000);
 
-        let vesting_id = env.register(VestingContract, ());
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        vesting.initialize(&admin);
+        let vesting_id = env.register(VestingContract, (admin.clone(),));
 
         (env, vesting_id, admin, beneficiary, funder)
     }
@@ -422,6 +423,18 @@ mod tests {
         let addr = token_id.address();
         StellarAssetClient::new(env, &addr).mint(funder, &amount);
         addr
+    }
+
+    // ── constructor ──────────────────────────────────────────────────────────
+
+    /// Constructor sets admin, paused=false, and schedule_count=0.
+    #[test]
+    fn test_constructor_sets_state() {
+        let (env, vesting_id, admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        assert_eq!(vesting.get_admin(), admin);
+        assert!(!vesting.is_paused());
+        assert_eq!(vesting.schedule_count(), 0);
     }
 
     // ── basic create + claim ─────────────────────────────────────────────────
@@ -897,16 +910,6 @@ mod tests {
         assert!(!vesting.is_paused());
     }
 
-    // ── double initialize must panic ─────────────────────────────────────────
-
-    #[test]
-    #[should_panic(expected = "already initialized")]
-    fn test_double_initialize_panics() {
-        let (env, vesting_id, admin, _b, _f) = setup();
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        vesting.initialize(&admin); // second call must panic
-    }
-
     // ── events: create_schedule emits "created" ───────────────────────────────
 
     #[test]
@@ -1184,19 +1187,17 @@ mod tests {
         let o2 = Address::generate(&env);
         let o3 = Address::generate(&env);
 
-        // Deploy multisig (2-of-3)
-        let ms_id = env.register(MultisigContract, ());
-        let ms = MultisigContractClient::new(&env, &ms_id);
+        // Deploy multisig (2-of-3) using constructor
         let mut owners = soroban_sdk::Vec::new(&env);
         owners.push_back(o1.clone());
         owners.push_back(o2.clone());
         owners.push_back(o3.clone());
-        ms.initialize(&owners, &2u32);
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
 
         // Deploy vesting with multisig contract address as admin
-        let vesting_id = env.register(VestingContract, ());
+        let vesting_id = env.register(VestingContract, (ms_id.clone(),));
         let vesting = VestingContractClient::new(&env, &vesting_id);
-        vesting.initialize(&ms_id);
 
         // Submit a proposal that calls vesting.pause() through the multisig.
         // The multisig contract is the vesting admin so its invocation
@@ -1235,17 +1236,15 @@ mod tests {
         let o2 = Address::generate(&env);
         let o3 = Address::generate(&env);
 
-        let ms_id = env.register(MultisigContract, ());
-        let ms = MultisigContractClient::new(&env, &ms_id);
         let mut owners = soroban_sdk::Vec::new(&env);
         owners.push_back(o1.clone());
         owners.push_back(o2.clone());
         owners.push_back(o3.clone());
-        ms.initialize(&owners, &2u32);
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
 
-        let vesting_id = env.register(VestingContract, ());
+        let vesting_id = env.register(VestingContract, (ms_id.clone(),));
         let vesting = VestingContractClient::new(&env, &vesting_id);
-        vesting.initialize(&ms_id);
 
         let id = ms.submit(
             &o1,
@@ -1258,6 +1257,8 @@ mod tests {
         );
         ms.confirm(&o1, &id); // only 1 of 2 needed -> should panic on execute
         ms.execute(&id);
+
+        let _ = vesting;
     }
 
     /// End-to-end: multisig calls create_schedule with a real token.
@@ -1280,19 +1281,17 @@ mod tests {
         let funder = Address::generate(&env);
         let beneficiary = Address::generate(&env);
 
-        // Deploy multisig (2-of-3)
-        let ms_id = env.register(MultisigContract, ());
-        let ms = MultisigContractClient::new(&env, &ms_id);
+        // Deploy multisig (2-of-3) using constructor
         let mut owners = soroban_sdk::Vec::new(&env);
         owners.push_back(o1.clone());
         owners.push_back(o2.clone());
         owners.push_back(o3.clone());
-        ms.initialize(&owners, &2u32);
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
 
         // Deploy vesting with multisig as admin
-        let vesting_id = env.register(VestingContract, ());
+        let vesting_id = env.register(VestingContract, (ms_id.clone(),));
         let vesting = VestingContractClient::new(&env, &vesting_id);
-        vesting.initialize(&ms_id);
 
         // Mint tokens to funder
         let token_id = env.register_stellar_asset_contract_v2(funder.clone());
@@ -1380,30 +1379,31 @@ mod e2e_token_tests {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    /// Deploy the real token contract, initialize it with `supply` minted to
+    /// Deploy the real token contract via constructor with `supply` minted to
     /// `admin`, and return (token_address, client).
     fn deploy_token<'a>(
         env: &'a Env,
         admin: &Address,
         supply: i128,
     ) -> (Address, TokenContractClient<'a>) {
-        let token_id = env.register(TokenContract, ());
-        let token = TokenContractClient::new(env, &token_id);
-        token.initialize(
-            admin,
-            &String::from_str(env, "Test Token"),
-            &String::from_str(env, "TT"),
-            &7u32,
-            &supply,
+        let token_id = env.register(
+            TokenContract,
+            (
+                admin.clone(),
+                String::from_str(env, "Test Token"),
+                String::from_str(env, "TT"),
+                7u32,
+                supply,
+            ),
         );
+        let token = TokenContractClient::new(env, &token_id);
         (token_id, token)
     }
 
-    /// Deploy vesting with `admin` and return client.
+    /// Deploy vesting with `admin` via constructor and return client.
     fn deploy_vesting<'a>(env: &'a Env, admin: &Address) -> (Address, VestingContractClient<'a>) {
-        let id = env.register(VestingContract, ());
+        let id = env.register(VestingContract, (admin.clone(),));
         let v = VestingContractClient::new(env, &id);
-        v.initialize(admin);
         (id, v)
     }
 

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-05
+
+- contracts/multisig, vesting, token: replace `initialize()` with
+  `__constructor` (soroban-sdk 27, E1). Constructor args are supplied once at
+  deploy time; the initialization front-running window is eliminated. New
+  multisig tests: `test_constructor_empty_owners_panics`,
+  `test_constructor_zero_threshold_panics`,
+  `test_constructor_threshold_exceeds_owners_panics`,
+  `test_owner_list_after_add_remove_cycle`. Vesting: replaced
+  `test_double_initialize_panics` with `test_constructor_sets_state`. Counts:
+  multisig 32, token 27, vesting 35 (94 total). Scripts, docs and README
+  updated to single-step deploy with constructor args.
+
 ### Added — 2026-10-04
 
 - contracts/multisig/src/lib.rs: 15 new tests — 19 total (PR #30):

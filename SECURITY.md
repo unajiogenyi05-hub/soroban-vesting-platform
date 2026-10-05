@@ -69,6 +69,10 @@ Use GitHub's built-in private vulnerability reporting:
 - The frontend communicates directly with the public Stellar Horizon API for read operations
 - All token transfers are authorized on-chain via `require_auth()` — the backend cannot move tokens unilaterally
 - Admin functions require explicit admin address authorization on every call
+- **Constructor-based deployment** — all three contracts use `__constructor` (soroban-sdk 27).
+  Constructor arguments are supplied atomically at deploy time, eliminating the initialization
+  front-running window that existed with a two-step `deploy → initialize` pattern. An attacker
+  can no longer call `initialize` on a freshly deployed contract before the legitimate owner does.
 
 ---
 

@@ -26,7 +26,7 @@ The script will:
 1. Generate fresh admin and beneficiary keypairs
 2. Fund both via Friendbot (testnet only)
 3. Build all contracts from source
-4. Deploy the token and vesting contracts
+4. Deploy the token and vesting contracts (constructor args passed at deploy time)
 5. Mint tokens, set allowance, create a 200-second vesting schedule with a
    60-second cliff
 6. Claim vested tokens if the cliff has passed
@@ -54,24 +54,18 @@ export ADMIN=$(stellar keys address my-admin)
 export TOKEN_ID=$(stellar contract deploy \
   --wasm target/wasm32v1-none/release/token.wasm \
   --source my-admin \
-  --network testnet)
-echo "Token: $TOKEN_ID"
-```
-
-Initialize it:
-
-```bash
-stellar contract invoke \
-  --id "$TOKEN_ID" \
-  --source my-admin \
   --network testnet \
-  -- initialize \
+  -- \
   --admin "$ADMIN" \
   --name '"My Token"' \
   --symbol '"MTK"' \
   --decimals 7 \
-  --initial_supply 0
+  --initial_supply 0)
+echo "Token: $TOKEN_ID"
 ```
+
+Constructor args are passed after `--` at deploy time. There is no separate
+`initialize` call.
 
 ### 4. Deploy the vesting contract
 
@@ -79,16 +73,13 @@ stellar contract invoke \
 export VESTING_ID=$(stellar contract deploy \
   --wasm target/wasm32v1-none/release/vesting.wasm \
   --source my-admin \
-  --network testnet)
-echo "Vesting: $VESTING_ID"
-
-stellar contract invoke \
-  --id "$VESTING_ID" \
-  --source my-admin \
   --network testnet \
-  -- initialize \
-  --admin "$ADMIN"
+  -- \
+  --admin "$ADMIN")
+echo "Vesting: $VESTING_ID"
 ```
+
+The `--admin` arg is the constructor parameter. No separate `initialize` call is needed.
 
 ### 5. Mint and approve
 

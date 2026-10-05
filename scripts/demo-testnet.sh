@@ -54,43 +54,31 @@ echo "     Build complete."
 echo ""
 
 # ── Step 4: Deploy token contract ────────────────────────────────────────────
+# Constructor args are passed after -- at deploy time; no separate initialize call.
 echo "[4/7] Deploying token contract..."
 TOKEN_ID=$(stellar contract deploy \
   --wasm target/wasm32v1-none/release/token.wasm \
   --source demo-admin \
-  --network testnet)
-echo "     Token contract : $TOKEN_ID"
-
-# Initialize token
-stellar contract invoke \
-  --id "$TOKEN_ID" \
-  --source demo-admin \
   --network testnet \
-  -- initialize \
+  -- \
   --admin "$ADMIN_ADDRESS" \
   --name '"Vesting Token"' \
   --symbol '"VEST"' \
   --decimals 7 \
-  --initial_supply 0
-echo "     Token initialized."
+  --initial_supply 0)
+echo "     Token contract : $TOKEN_ID"
 echo ""
 
 # ── Step 5: Deploy vesting contract ──────────────────────────────────────────
+# Constructor arg --admin is passed after -- at deploy time; no separate initialize call.
 echo "[5/7] Deploying vesting contract..."
 VESTING_ID=$(stellar contract deploy \
   --wasm target/wasm32v1-none/release/vesting.wasm \
   --source demo-admin \
-  --network testnet)
-echo "     Vesting contract : $VESTING_ID"
-
-# Initialize vesting
-stellar contract invoke \
-  --id "$VESTING_ID" \
-  --source demo-admin \
   --network testnet \
-  -- initialize \
-  --admin "$ADMIN_ADDRESS"
-echo "     Vesting initialized."
+  -- \
+  --admin "$ADMIN_ADDRESS")
+echo "     Vesting contract : $VESTING_ID"
 echo ""
 
 # ── Step 6: Mint tokens and approve vesting contract ─────────────────────────
