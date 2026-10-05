@@ -41,11 +41,18 @@
 //! decrementing `confirmation_count` accordingly.
 //!
 //! # Storage layout
-//! - `owners`     — Vec<Address> of current owners
-//! - `threshold`  — u32 required confirmations
-//! - `prop_count` — running proposal counter
-//! - `Proposal(id)` — ProposalData
-//! - `Confirm(id, address)` — bool
+//! - `owners`     — Vec<Address> of current owners (instance)
+//! - `threshold`  — u32 required confirmations (instance)
+//! - `prop_count` — running proposal counter (instance)
+//! - `Proposal(id)` — ProposalData (persistent)
+//! - `Confirm(id, address)` — bool (persistent)
+//!
+//! # TTL management
+//! Instance storage holds OWNERS, THRESHOLD and PROP_COUNT.  If the instance
+//! entry is archived the whole contract becomes unusable until it is restored.
+//! Every public entry point therefore calls `bump_instance()` to extend the
+//! instance TTL.  Persistent Proposal and Confirm entries are bumped on every
+//! write (submit, confirm, revoke_confirmation, execute, cancel).
 
 #![no_std]
 #![allow(deprecated)]
@@ -59,6 +66,16 @@ use soroban_sdk::{
 const OWNERS: Symbol = symbol_short!("OWNERS");
 const THRESHOLD: Symbol = symbol_short!("THRESH");
 const PROP_COUNT: Symbol = symbol_short!("PROPCOUNT");
+
+// ─── TTL constants ────────────────────────────────────────────────────────────
+
+/// Extend instance and persistent storage to ~1 year (ledgers of ~5 s each).
+pub const INSTANCE_BUMP_LEDGERS: u32 = 6_307_200;
+/// Only extend when the remaining TTL drops below ~30 days.
+pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
+/// Persistent entries use the same window.
+pub const PERSISTENT_BUMP_LEDGERS: u32 = 6_307_200;
+pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -159,6 +176,7 @@ impl MultisigContract {
         env.storage().instance().set(&OWNERS, &owners);
         env.storage().instance().set(&THRESHOLD, &threshold);
         env.storage().instance().set(&PROP_COUNT, &0u64);
+        Self::bump_instance(&env);
     }
 
     // ── Proposals ───────────────────────────────────────────────────────────
@@ -168,6 +186,7 @@ impl MultisigContract {
     /// `action`      — the typed action to perform when executed  
     /// `description` — human-readable label for UIs / logs  
     pub fn submit(env: Env, proposer: Address, action: ProposalAction, description: String) -> u64 {
+        Self::bump_instance(&env);
         proposer.require_auth();
         Self::require_owner(&env, &proposer);
 
@@ -187,6 +206,11 @@ impl MultisigContract {
         env.storage()
             .persistent()
             .set(&DataKey::Proposal(id), &proposal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Proposal(id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
         env.storage().instance().set(&PROP_COUNT, &id);
 
         env.events().publish((EVT_SUBMITTED,), (id, proposer));
@@ -195,6 +219,7 @@ impl MultisigContract {
 
     /// Confirm a pending proposal. Caller must be an owner.
     pub fn confirm(env: Env, owner: Address, proposal_id: u64) {
+        Self::bump_instance(&env);
         owner.require_auth();
         Self::require_owner(&env, &owner);
 
@@ -219,16 +244,27 @@ impl MultisigContract {
         }
 
         env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
         proposal.confirmation_count += 1;
         env.storage()
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Proposal(proposal_id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         env.events().publish((EVT_CONFIRMED,), (proposal_id, owner));
     }
 
     /// Revoke own confirmation from a pending proposal.
     pub fn revoke_confirmation(env: Env, owner: Address, proposal_id: u64) {
+        Self::bump_instance(&env);
         owner.require_auth();
         Self::require_owner(&env, &owner);
 
@@ -257,6 +293,11 @@ impl MultisigContract {
         env.storage()
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Proposal(proposal_id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         env.events().publish((EVT_REVOKED,), (proposal_id, owner));
     }
@@ -276,6 +317,8 @@ impl MultisigContract {
     /// handled directly — no cross-contract call is made for them.
     /// `Call` actions dispatch to an external contract via `env.invoke_contract`.
     pub fn execute(env: Env, proposal_id: u64) {
+        Self::bump_instance(&env);
+
         let mut proposal: ProposalData = env
             .storage()
             .persistent()
@@ -296,6 +339,11 @@ impl MultisigContract {
         env.storage()
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Proposal(proposal_id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         env.events().publish((EVT_EXECUTED,), proposal_id);
 
@@ -318,6 +366,7 @@ impl MultisigContract {
 
     /// Cancel a pending proposal. Only the original proposer may cancel.
     pub fn cancel(env: Env, caller: Address, proposal_id: u64) {
+        Self::bump_instance(&env);
         caller.require_auth();
         Self::require_owner(&env, &caller);
 
@@ -339,6 +388,11 @@ impl MultisigContract {
         env.storage()
             .persistent()
             .set(&DataKey::Proposal(proposal_id), &proposal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Proposal(proposal_id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         env.events().publish((EVT_CANCELLED,), proposal_id);
     }
@@ -346,6 +400,7 @@ impl MultisigContract {
     // ── Read ────────────────────────────────────────────────────────────────
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> ProposalData {
+        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Proposal(proposal_id))
@@ -353,6 +408,7 @@ impl MultisigContract {
     }
 
     pub fn get_owners(env: Env) -> Vec<Address> {
+        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&OWNERS)
@@ -360,14 +416,17 @@ impl MultisigContract {
     }
 
     pub fn get_threshold(env: Env) -> u32 {
+        Self::bump_instance(&env);
         env.storage().instance().get(&THRESHOLD).unwrap_or(0)
     }
 
     pub fn proposal_count(env: Env) -> u64 {
+        Self::bump_instance(&env);
         env.storage().instance().get(&PROP_COUNT).unwrap_or(0)
     }
 
     pub fn has_confirmed(env: Env, proposal_id: u64, owner: Address) -> bool {
+        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Confirm(proposal_id, owner))
@@ -375,6 +434,7 @@ impl MultisigContract {
     }
 
     pub fn is_owner(env: Env, address: Address) -> bool {
+        Self::bump_instance(&env);
         let owners: Vec<Address> = env
             .storage()
             .instance()
@@ -384,6 +444,14 @@ impl MultisigContract {
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
+
+    /// Extend instance storage TTL so OWNERS, THRESHOLD and PROP_COUNT
+    /// do not expire while the contract is in active use.
+    fn bump_instance(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
+    }
 
     fn require_owner(env: &Env, address: &Address) {
         let owners: Vec<Address> = env
@@ -456,6 +524,11 @@ impl MultisigContract {
                         env.storage()
                             .persistent()
                             .set(&DataKey::Proposal(pid), &prop);
+                        env.storage().persistent().extend_ttl(
+                            &DataKey::Proposal(pid),
+                            PERSISTENT_BUMP_THRESHOLD,
+                            PERSISTENT_BUMP_LEDGERS,
+                        );
                     }
                 }
             }
@@ -479,7 +552,7 @@ impl MultisigContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::{storage as test_storage, Address as _, Ledger};
     use soroban_sdk::{symbol_short, Env, String};
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -543,6 +616,82 @@ mod tests {
             function: func,
             args: no_args(env),
         })
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TTL tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// submit() bumps instance TTL above INSTANCE_BUMP_THRESHOLD.
+    #[test]
+    fn test_ttl_instance_bumped_on_submit() {
+        use test_storage::Instance as _;
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "ttl test"),
+        );
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} should exceed INSTANCE_BUMP_THRESHOLD {INSTANCE_BUMP_THRESHOLD}"
+        );
+    }
+
+    /// confirm() bumps persistent TTL of the Proposal entry.
+    #[test]
+    fn test_ttl_proposal_bumped_on_confirm() {
+        use test_storage::Persistent as _;
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "ttl test"),
+        );
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+
+        let ttl = env.as_contract(&contract_id, || {
+            env.storage().persistent().get_ttl(&DataKey::Proposal(id))
+        });
+        assert!(
+            ttl > PERSISTENT_BUMP_THRESHOLD,
+            "proposal TTL {ttl} should exceed PERSISTENT_BUMP_THRESHOLD {PERSISTENT_BUMP_THRESHOLD}"
+        );
+    }
+
+    /// confirm() bumps persistent TTL of the Confirm entry.
+    #[test]
+    fn test_ttl_confirm_entry_bumped() {
+        use test_storage::Persistent as _;
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "ttl test"),
+        );
+        ms.confirm(&o1, &id);
+
+        let ttl = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Confirm(id, o1.clone()))
+        });
+        assert!(
+            ttl > PERSISTENT_BUMP_THRESHOLD,
+            "confirm TTL {ttl} should exceed PERSISTENT_BUMP_THRESHOLD {PERSISTENT_BUMP_THRESHOLD}"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -619,26 +768,13 @@ mod tests {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Authorization proof tests
-    //
-    // These tests prove that owner management is ONLY possible via a proposal
-    // that has reached the confirmation threshold.  There are no public entry
-    // points for add_owner / remove_owner / update_threshold; the only way to
-    // trigger them is through execute() after threshold confirmations.
-    //
-    //   1. Owner management actions require threshold confirmations — an
-    //      under-confirmed proposal panics with "not enough confirmations".
-    //   2. A fully-confirmed proposal succeeds and mutates state.
-    //   3. A self-call (re-entrancy) traps — Soroban disallows it.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// AddOwner proposals require threshold confirmations.
-    /// A proposal submitted but confirmed only once (below a threshold of 2)
-    /// must panic with "not enough confirmations" when execute() is called.
     #[test]
     #[should_panic(expected = "not enough confirmations")]
     fn test_add_owner_requires_threshold() {
         let env = Env::default();
-        env.mock_all_auths(); // satisfies require_auth on submit/confirm; execute is permissionless
+        env.mock_all_auths();
 
         let o1 = Address::generate(&env);
         let o2 = Address::generate(&env);
@@ -655,12 +791,9 @@ mod tests {
             &String::from_str(&env, "add owner"),
         );
         ms.confirm(&o1, &id);
-        // Only 1 of 2 confirmations — must panic with "not enough confirmations".
         ms.execute(&id);
     }
 
-    /// Owner management can ONLY succeed via a fully-confirmed proposal.
-    /// Here we confirm to threshold and verify the owner was added.
     #[test]
     fn test_owner_management_only_via_proposal() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();
@@ -682,7 +815,6 @@ mod tests {
         assert_eq!(ms.get_owners().len(), 4);
     }
 
-    /// A proposal to remove an owner requires threshold confirmations too.
     #[test]
     fn test_remove_owner_only_via_proposal() {
         let (env, contract_id, o1, o2, o3) = setup_2of3();
@@ -703,7 +835,6 @@ mod tests {
         assert_eq!(ms.get_owners().len(), 2);
     }
 
-    /// A proposal to update the threshold requires threshold confirmations.
     #[test]
     fn test_update_threshold_only_via_proposal() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();
@@ -723,7 +854,6 @@ mod tests {
         assert_eq!(ms.get_threshold(), 3);
     }
 
-    /// Attempting update_threshold below the confirmation count must panic.
     #[test]
     #[should_panic(expected = "not enough confirmations")]
     fn test_update_threshold_below_threshold_panics() {
@@ -736,10 +866,9 @@ mod tests {
             &String::from_str(&env, "lower threshold"),
         );
         ms.confirm(&o1, &id);
-        ms.execute(&id); // only 1 of 2 required — must panic
+        ms.execute(&id);
     }
 
-    /// Setting threshold to zero must panic with "invalid threshold".
     #[test]
     #[should_panic(expected = "invalid threshold")]
     fn test_update_threshold_zero_panics() {
@@ -756,7 +885,6 @@ mod tests {
         ms.execute(&id);
     }
 
-    /// Setting threshold above the owner count must panic with "invalid threshold".
     #[test]
     #[should_panic(expected = "invalid threshold")]
     fn test_update_threshold_exceeds_owners_panics() {
@@ -765,7 +893,7 @@ mod tests {
 
         let id = ms.submit(
             &o1,
-            &ProposalAction::UpdateThreshold(4), // only 3 owners
+            &ProposalAction::UpdateThreshold(4),
             &String::from_str(&env, "too high threshold"),
         );
         ms.confirm(&o1, &id);
@@ -773,7 +901,6 @@ mod tests {
         ms.execute(&id);
     }
 
-    /// Adding a duplicate owner must panic with "already an owner".
     #[test]
     #[should_panic(expected = "already an owner")]
     fn test_add_owner_duplicate_panics() {
@@ -790,16 +917,12 @@ mod tests {
         ms.execute(&id);
     }
 
-    /// Removing an owner that would breach the threshold must panic.
     #[test]
     #[should_panic(expected = "cannot remove: would breach threshold")]
     fn test_remove_owner_below_threshold_panics() {
-        // 2-of-3: removing would leave 2 owners with threshold 2 (ok).
-        // Then removing another would leave 1 owner with threshold 2 (breach).
         let (env, contract_id, o1, o2, o3) = setup_2of3();
         let ms = MultisigContractClient::new(&env, &contract_id);
 
-        // Remove o3 → 2 owners, threshold 2 (ok).
         let id1 = ms.submit(
             &o1,
             &ProposalAction::RemoveOwner(o3.clone()),
@@ -809,7 +932,6 @@ mod tests {
         ms.confirm(&o2, &id1);
         ms.execute(&id1);
 
-        // Now try to remove o2 → would leave 1 owner, threshold 2 → breach.
         let id2 = ms.submit(
             &o1,
             &ProposalAction::RemoveOwner(o2.clone()),
@@ -817,29 +939,15 @@ mod tests {
         );
         ms.confirm(&o1, &id2);
         ms.confirm(&o2, &id2);
-        ms.execute(&id2); // must panic
+        ms.execute(&id2);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Re-entrancy / self-call test
-    //
-    // Soroban disallows a contract from invoking itself via invoke_contract.
-    // A Call proposal targeting the multisig contract itself must trap.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// A ProposalAction::Call that targets the multisig contract itself traps
-    /// because Soroban disallows re-entrancy (self-call via invoke_contract).
-    /// This confirms that internal owner management actions (AddOwner etc.)
-    /// cannot be triggered by a self-referencing Call proposal — they MUST use
-    /// the dedicated enum variants, which are handled inside execute() directly.
     #[test]
     #[should_panic]
     fn test_self_call_reentrance_fails() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();
         let ms = MultisigContractClient::new(&env, &contract_id);
 
-        // Submit a Call that targets the multisig contract itself.
-        // Any function name will do — the host will reject the re-entrant call.
         let id = ms.submit(
             &o1,
             &ProposalAction::Call(CallData {
@@ -851,25 +959,15 @@ mod tests {
         );
         ms.confirm(&o1, &id);
         ms.confirm(&o2, &id);
-        ms.execute(&id); // must panic — Soroban disallows self-invocation
+        ms.execute(&id);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Confirmation invalidation on owner removal
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// When an owner is removed, their confirmations on pending proposals are
-    /// cleared and confirmation_count is decremented.  This means a proposal
-    /// that relied solely on the removed owner's confirmation to reach threshold
-    /// is no longer executable until another owner re-confirms it.
     #[test]
     fn test_remove_owner_clears_confirmations() {
         let (env, contract_id, o1, o2, o3) = setup_2of3();
         let ms = MultisigContractClient::new(&env, &contract_id);
         let stub_id = env.register(stub_token::StubToken, ());
 
-        // Submit a pending Call proposal and have o3 confirm it.
-        // It needs 2 confirmations; o3 gives 1.
         let pending_id = ms.submit(
             &o1,
             &call_action(&env, &stub_id, symbol_short!("ping")),
@@ -879,7 +977,6 @@ mod tests {
         assert_eq!(ms.get_proposal(&pending_id).confirmation_count, 1);
         assert!(ms.has_confirmed(&pending_id, &o3));
 
-        // Now submit + confirm + execute a RemoveOwner(o3) proposal.
         let remove_id = ms.submit(
             &o1,
             &ProposalAction::RemoveOwner(o3.clone()),
@@ -889,18 +986,10 @@ mod tests {
         ms.confirm(&o2, &remove_id);
         ms.execute(&remove_id);
 
-        // o3 is no longer an owner.
         assert!(!ms.is_owner(&o3));
-
-        // The pending proposal's confirmation_count must have been decremented.
         assert_eq!(ms.get_proposal(&pending_id).confirmation_count, 0);
-        // The confirm key for o3 must have been removed.
         assert!(!ms.has_confirmed(&pending_id, &o3));
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Core proposal lifecycle tests
-    // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn test_submit_and_execute() {
@@ -935,7 +1024,7 @@ mod tests {
             &String::from_str(&env, "test"),
         );
         ms.confirm(&o1, &id);
-        ms.execute(&id); // needs 2, only has 1
+        ms.execute(&id);
     }
 
     #[test]
@@ -983,7 +1072,7 @@ mod tests {
             &String::from_str(&env, "test"),
         );
         ms.confirm(&o1, &id);
-        ms.confirm(&o1, &id); // double-confirm
+        ms.confirm(&o1, &id);
     }
 
     #[test]
@@ -1017,8 +1106,6 @@ mod tests {
         ms.confirm(&stranger, &id);
     }
 
-    /// execute() is permissionless — a non-owner can trigger it once the
-    /// threshold of owner confirmations has been reached.
     #[test]
     fn test_execute_by_non_owner_succeeds_when_threshold_met() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();
@@ -1032,10 +1119,6 @@ mod tests {
         );
         ms.confirm(&o1, &id);
         ms.confirm(&o2, &id);
-
-        // Execute as a stranger — must succeed because execute() is permissionless.
-        // Owners expressed their consent through on-chain confirmations; the
-        // final trigger does not require an additional gate.
         ms.execute(&id);
         assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Executed);
     }
@@ -1055,7 +1138,7 @@ mod tests {
         ms.confirm(&o1, &id);
         ms.confirm(&o2, &id);
         ms.execute(&id);
-        ms.execute(&id); // second call must panic
+        ms.execute(&id);
     }
 
     #[test]
@@ -1085,7 +1168,7 @@ mod tests {
             &call_action(&env, &target, symbol_short!("ping")),
             &String::from_str(&env, "test"),
         );
-        ms.cancel(&o2, &id); // o2 is not the proposer
+        ms.cancel(&o2, &id);
     }
 
     #[test]
@@ -1107,10 +1190,6 @@ mod tests {
         ms.execute(&id);
         assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Executed);
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Cross-contract call tests
-    // ─────────────────────────────────────────────────────────────────────────
 
     #[test]
     fn test_execute_real_cross_contract_call() {
@@ -1134,7 +1213,6 @@ mod tests {
         assert!(stub.was_called());
     }
 
-    /// A proposal with a target call that panics: the whole execute() reverts.
     #[test]
     #[should_panic]
     fn test_execute_failing_target_reverts() {
@@ -1151,10 +1229,9 @@ mod tests {
 
         ms.confirm(&o1, &id);
         ms.confirm(&o2, &id);
-        ms.execute(&id); // must panic because fail() panics
+        ms.execute(&id);
     }
 
-    /// Execute below threshold panics with "not enough confirmations".
     #[test]
     #[should_panic(expected = "not enough confirmations")]
     fn test_execute_below_threshold_panics() {
@@ -1171,7 +1248,6 @@ mod tests {
         ms.execute(&id);
     }
 
-    /// Execute twice panics with "proposal not pending".
     #[test]
     #[should_panic(expected = "proposal not pending")]
     fn test_execute_twice_panics_t3() {
@@ -1190,7 +1266,6 @@ mod tests {
         ms.execute(&id);
     }
 
-    /// Verify that ProposalData stores the action and description correctly.
     #[test]
     fn test_execute_proposal_stored_fields() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();

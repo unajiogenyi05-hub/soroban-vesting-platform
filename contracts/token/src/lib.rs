@@ -6,6 +6,12 @@
 //! - approve / allowances
 //! - pause / unpause (admin only)
 //! - metadata (name, symbol, decimals)
+//!
+//! # TTL management
+//! Instance storage holds ADMIN, PAUSED, TOTAL, NAME, SYMBOL, DECIMALS.
+//! If the instance entry is archived the whole contract becomes unusable until
+//! it is restored.  Every public entry point calls `bump_instance()`.
+//! Persistent Balance and Allowance entries are bumped on every write.
 
 #![no_std]
 #![allow(deprecated)]
@@ -22,6 +28,16 @@ const TOTAL: Symbol = symbol_short!("TOTAL");
 const NAME: Symbol = symbol_short!("NAME");
 const SYMBOL_KEY: Symbol = symbol_short!("SYMBOL");
 const DECIMALS: Symbol = symbol_short!("DECIMALS");
+
+// ─── TTL constants ────────────────────────────────────────────────────────────
+
+/// Extend instance and persistent storage to ~1 year (ledgers of ~5 s each).
+pub const INSTANCE_BUMP_LEDGERS: u32 = 6_307_200;
+/// Only extend when the remaining TTL drops below ~30 days.
+pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
+/// Persistent entries use the same window.
+pub const PERSISTENT_BUMP_LEDGERS: u32 = 6_307_200;
+pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
 
 #[contracttype]
 pub enum DataKey {
@@ -48,11 +64,6 @@ impl TokenContract {
     // ── Constructor ─────────────────────────────────────────────────────────
 
     /// Constructor: set token metadata and mint initial supply at deploy time.
-    ///
-    /// Called automatically at deploy time — there is no separate
-    /// `initialize` step.  Because the constructor runs atomically with
-    /// deployment the front-running window that existed with a two-step
-    /// initialize() is eliminated.
     pub fn __constructor(
         env: Env,
         admin: Address,
@@ -71,6 +82,7 @@ impl TokenContract {
         env.storage().instance().set(&SYMBOL_KEY, &symbol);
         env.storage().instance().set(&DECIMALS, &decimals);
         env.storage().instance().set(&TOTAL, &0i128);
+        Self::bump_instance(&env);
 
         if initial_supply > 0 {
             Self::_mint(&env, &admin, initial_supply);
@@ -80,6 +92,7 @@ impl TokenContract {
     // ── Mint / Burn ─────────────────────────────────────────────────────────
 
     pub fn mint(env: Env, to: Address, amount: i128) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         Self::require_not_paused(&env);
         if amount <= 0 {
@@ -90,6 +103,7 @@ impl TokenContract {
     }
 
     pub fn burn(env: Env, from: Address, amount: i128) {
+        Self::bump_instance(&env);
         from.require_auth();
         Self::require_not_paused(&env);
         if amount <= 0 {
@@ -99,9 +113,15 @@ impl TokenContract {
         if bal < amount {
             panic!("insufficient balance");
         }
+        let new_bal = bal - amount;
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(from.clone()), &(bal - amount));
+            .set(&DataKey::Balance(from.clone()), &new_bal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Balance(from.clone()),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
         let total: i128 = env.storage().instance().get(&TOTAL).unwrap_or(0);
         env.storage().instance().set(&TOTAL, &(total - amount));
         env.events().publish((EVT_BURN,), (from, amount));
@@ -110,6 +130,7 @@ impl TokenContract {
     // ── Transfer ────────────────────────────────────────────────────────────
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        Self::bump_instance(&env);
         from.require_auth();
         Self::require_not_paused(&env);
         Self::_transfer(&env, &from, &to, amount);
@@ -117,6 +138,7 @@ impl TokenContract {
     }
 
     pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        Self::bump_instance(&env);
         spender.require_auth();
         Self::require_not_paused(&env);
 
@@ -125,9 +147,13 @@ impl TokenContract {
         if allowance < amount {
             panic!("allowance exceeded");
         }
-        env.storage()
-            .persistent()
-            .set(&allow_key, &(allowance - amount));
+        let new_allowance = allowance - amount;
+        env.storage().persistent().set(&allow_key, &new_allowance);
+        env.storage().persistent().extend_ttl(
+            &allow_key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
 
         Self::_transfer(&env, &from, &to, amount);
         env.events().publish((EVT_TRANSFER,), (from, to, amount));
@@ -136,14 +162,19 @@ impl TokenContract {
     // ── Allowances ──────────────────────────────────────────────────────────
 
     pub fn approve(env: Env, owner: Address, spender: Address, amount: i128) {
+        Self::bump_instance(&env);
         owner.require_auth();
         Self::require_not_paused(&env);
         if amount < 0 {
             panic!("amount cannot be negative");
         }
-        env.storage()
-            .persistent()
-            .set(&DataKey::Allowance(owner.clone(), spender.clone()), &amount);
+        let allow_key = DataKey::Allowance(owner.clone(), spender.clone());
+        env.storage().persistent().set(&allow_key, &amount);
+        env.storage().persistent().extend_ttl(
+            &allow_key,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
         env.events()
             .publish((EVT_APPROVE,), (owner, spender, amount));
     }
@@ -151,12 +182,14 @@ impl TokenContract {
     // ── Pause ───────────────────────────────────────────────────────────────
 
     pub fn pause(env: Env) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         env.storage().instance().set(&PAUSED, &true);
         env.events().publish((EVT_PAUSE,), ());
     }
 
     pub fn unpause(env: Env) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         env.storage().instance().set(&PAUSED, &false);
         env.events().publish((EVT_UNPAUSE,), ());
@@ -165,6 +198,7 @@ impl TokenContract {
     // ── Admin ───────────────────────────────────────────────────────────────
 
     pub fn transfer_admin(env: Env, new_admin: Address) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         new_admin.require_auth();
         env.storage().instance().set(&ADMIN, &new_admin);
@@ -173,6 +207,7 @@ impl TokenContract {
     // ── Metadata reads ──────────────────────────────────────────────────────
 
     pub fn name(env: Env) -> String {
+        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&NAME)
@@ -180,6 +215,7 @@ impl TokenContract {
     }
 
     pub fn symbol(env: Env) -> String {
+        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&SYMBOL_KEY)
@@ -187,18 +223,22 @@ impl TokenContract {
     }
 
     pub fn decimals(env: Env) -> u32 {
+        Self::bump_instance(&env);
         env.storage().instance().get(&DECIMALS).unwrap_or(7)
     }
 
     pub fn total_supply(env: Env) -> i128 {
+        Self::bump_instance(&env);
         env.storage().instance().get(&TOTAL).unwrap_or(0)
     }
 
     pub fn balance(env: Env, account: Address) -> i128 {
+        Self::bump_instance(&env);
         Self::balance_of(&env, &account)
     }
 
     pub fn allowance(env: Env, owner: Address, spender: Address) -> i128 {
+        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Allowance(owner, spender))
@@ -206,10 +246,12 @@ impl TokenContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
+        Self::bump_instance(&env);
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
     pub fn admin(env: Env) -> Address {
+        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&ADMIN)
@@ -217,6 +259,14 @@ impl TokenContract {
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
+
+    /// Extend instance storage TTL so ADMIN, PAUSED, TOTAL, NAME, SYMBOL and
+    /// DECIMALS do not expire while the contract is in active use.
+    fn bump_instance(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
+    }
 
     fn require_admin(env: &Env) {
         let admin: Address = env
@@ -243,9 +293,15 @@ impl TokenContract {
 
     fn _mint(env: &Env, to: &Address, amount: i128) {
         let bal = Self::balance_of(env, to);
+        let new_bal = bal + amount;
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(to.clone()), &(bal + amount));
+            .set(&DataKey::Balance(to.clone()), &new_bal);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Balance(to.clone()),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
         let total: i128 = env.storage().instance().get(&TOTAL).unwrap_or(0);
         env.storage().instance().set(&TOTAL, &(total + amount));
     }
@@ -258,13 +314,25 @@ impl TokenContract {
         if from_bal < amount {
             panic!("insufficient balance");
         }
+        let new_from = from_bal - amount;
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(from.clone()), &(from_bal - amount));
+            .set(&DataKey::Balance(from.clone()), &new_from);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Balance(from.clone()),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
         let to_bal = Self::balance_of(env, to);
+        let new_to = to_bal + amount;
         env.storage()
             .persistent()
-            .set(&DataKey::Balance(to.clone()), &(to_bal + amount));
+            .set(&DataKey::Balance(to.clone()), &new_to);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Balance(to.clone()),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
     }
 }
 
@@ -291,6 +359,67 @@ mod tests {
             ),
         );
         (env, contract_id, admin)
+    }
+
+    // ── TTL tests ─────────────────────────────────────────────────────────────
+
+    /// mint() bumps instance TTL above INSTANCE_BUMP_THRESHOLD.
+    #[test]
+    fn test_ttl_instance_bumped_on_mint() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let recipient = Address::generate(&env);
+
+        token.mint(&recipient, &1_000);
+
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} should exceed {INSTANCE_BUMP_THRESHOLD}"
+        );
+    }
+
+    /// _mint (via mint()) bumps persistent Balance TTL.
+    #[test]
+    fn test_ttl_balance_bumped_on_mint() {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let recipient = Address::generate(&env);
+
+        token.mint(&recipient, &1_000);
+
+        let ttl = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Balance(recipient.clone()))
+        });
+        assert!(
+            ttl > PERSISTENT_BUMP_THRESHOLD,
+            "balance TTL {ttl} should exceed {PERSISTENT_BUMP_THRESHOLD}"
+        );
+    }
+
+    /// approve() bumps persistent Allowance TTL.
+    #[test]
+    fn test_ttl_allowance_bumped_on_approve() {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        let (env, contract_id, admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let spender = Address::generate(&env);
+
+        token.approve(&admin, &spender, &500);
+
+        let ttl = env.as_contract(&contract_id, || {
+            env.storage()
+                .persistent()
+                .get_ttl(&DataKey::Allowance(admin.clone(), spender.clone()))
+        });
+        assert!(
+            ttl > PERSISTENT_BUMP_THRESHOLD,
+            "allowance TTL {ttl} should exceed {PERSISTENT_BUMP_THRESHOLD}"
+        );
     }
 
     // ── Original baseline tests ────────────────────────────────────────────────
@@ -348,14 +477,7 @@ mod tests {
     }
 
     // ── Event assertions ──────────────────────────────────────────────────────
-    //
-    // Each test isolates a single call after deploy so that
-    // `env.events().all()` contains exactly the events from that call.
-    // The __constructor call (which calls _mint internally) does NOT emit
-    // a "mint" event — only the public mint() function does.
-    // We assert both the topic (Symbol) and the data payload.
 
-    /// mint() emits (EVT_MINT,) with data (to: Address, amount: i128).
     #[test]
     fn test_event_mint() {
         let (env, contract_id, _admin) = deploy();
@@ -377,7 +499,6 @@ mod tests {
         );
     }
 
-    /// burn() emits (EVT_BURN,) with data (from: Address, amount: i128).
     #[test]
     fn test_event_burn() {
         let (env, contract_id, admin) = deploy();
@@ -398,7 +519,6 @@ mod tests {
         );
     }
 
-    /// transfer() emits (EVT_TRANSFER,) with data (from, to, amount).
     #[test]
     fn test_event_transfer() {
         let (env, contract_id, admin) = deploy();
@@ -420,9 +540,6 @@ mod tests {
         );
     }
 
-    /// transfer_from() emits (EVT_TRANSFER,) with data (from, to, amount)
-    /// — the spender is not in the event data, only the fund source and
-    /// destination are recorded.
     #[test]
     fn test_event_transfer_from() {
         let (env, contract_id, admin) = deploy();
@@ -433,16 +550,13 @@ mod tests {
         token.approve(&admin, &spender, &500);
         token.transfer_from(&spender, &admin, &recipient, &200);
 
-        // Verify the transfer event was emitted (it is the last one published).
         let contract_events = env.events().all().filter_by_contract(&contract_id);
         let events_slice = contract_events.events();
         assert!(!events_slice.is_empty(), "expected transfer event");
-        // Verify balances changed correctly
         assert_eq!(token.balance(&recipient), 200);
         assert_eq!(token.allowance(&admin, &spender), 300);
     }
 
-    /// approve() emits (EVT_APPROVE,) with data (owner, spender, amount).
     #[test]
     fn test_event_approve() {
         let (env, contract_id, admin) = deploy();
@@ -464,7 +578,6 @@ mod tests {
         );
     }
 
-    /// pause() emits (EVT_PAUSE,) with empty data.
     #[test]
     fn test_event_pause() {
         let (env, contract_id, _admin) = deploy();
@@ -485,7 +598,6 @@ mod tests {
         );
     }
 
-    /// unpause() emits (EVT_UNPAUSE,) with empty data.
     #[test]
     fn test_event_unpause() {
         let (env, contract_id, _admin) = deploy();
@@ -494,8 +606,6 @@ mod tests {
         token.pause();
         token.unpause();
 
-        // Assert the unpause event immediately after the call — before any
-        // subsequent read that would reset env.events().all().
         assert_eq!(
             env.events().all(),
             vec![
@@ -511,9 +621,6 @@ mod tests {
 
     // ── Allowance edge cases ──────────────────────────────────────────────────
 
-    /// After a partial transfer_from the allowance decreases by exactly the
-    /// transferred amount; a second transfer_from for the remainder leaves
-    /// allowance at zero; a third call panics.
     #[test]
     #[should_panic(expected = "allowance exceeded")]
     fn test_allowance_exhaustion() {
@@ -523,18 +630,13 @@ mod tests {
         let recipient = Address::generate(&env);
 
         token.approve(&admin, &spender, &100);
-        // First spend: 60 of 100
         token.transfer_from(&spender, &admin, &recipient, &60);
         assert_eq!(token.allowance(&admin, &spender), 40);
-        // Second spend: exactly 40 — exhausts allowance
         token.transfer_from(&spender, &admin, &recipient, &40);
         assert_eq!(token.allowance(&admin, &spender), 0);
-        // Third spend: 1 over zero allowance — must panic
         token.transfer_from(&spender, &admin, &recipient, &1);
     }
 
-    /// transfer_from with an amount larger than the approved allowance panics
-    /// immediately without altering any balances.
     #[test]
     #[should_panic(expected = "allowance exceeded")]
     fn test_transfer_from_over_allowance() {
@@ -544,10 +646,9 @@ mod tests {
         let recipient = Address::generate(&env);
 
         token.approve(&admin, &spender, &50);
-        token.transfer_from(&spender, &admin, &recipient, &100); // 100 > 50
+        token.transfer_from(&spender, &admin, &recipient, &100);
     }
 
-    /// approve() with amount 0 is valid (it resets the allowance to zero).
     #[test]
     fn test_approve_zero_resets_allowance() {
         let (env, contract_id, admin) = deploy();
@@ -563,7 +664,6 @@ mod tests {
 
     // ── Paused-state edge cases ───────────────────────────────────────────────
 
-    /// transfer() while paused panics; after unpause the same transfer succeeds.
     #[test]
     fn test_unpause_restores_transfer() {
         let (env, contract_id, admin) = deploy();
@@ -572,16 +672,13 @@ mod tests {
 
         token.pause();
         assert!(token.is_paused());
-
         token.unpause();
         assert!(!token.is_paused());
 
-        // Should succeed now
         token.transfer(&admin, &recipient, &100);
         assert_eq!(token.balance(&recipient), 100);
     }
 
-    /// approve() while paused panics.
     #[test]
     #[should_panic(expected = "token is paused")]
     fn test_approve_while_paused() {
@@ -593,7 +690,6 @@ mod tests {
         token.approve(&admin, &spender, &100);
     }
 
-    /// transfer_from() while paused panics even if a prior allowance exists.
     #[test]
     #[should_panic(expected = "token is paused")]
     fn test_transfer_from_while_paused() {
@@ -602,14 +698,11 @@ mod tests {
         let spender = Address::generate(&env);
         let recipient = Address::generate(&env);
 
-        // Set allowance before pausing
         token.approve(&admin, &spender, &100);
         token.pause();
-        // Must panic even though allowance exists
         token.transfer_from(&spender, &admin, &recipient, &50);
     }
 
-    /// burn() while paused panics.
     #[test]
     #[should_panic(expected = "token is paused")]
     fn test_burn_while_paused() {
@@ -619,7 +712,6 @@ mod tests {
         token.burn(&admin, &100);
     }
 
-    /// mint() while paused panics.
     #[test]
     #[should_panic(expected = "token is paused")]
     fn test_mint_while_paused() {
@@ -632,16 +724,14 @@ mod tests {
 
     // ── Invalid amount tests ──────────────────────────────────────────────────
 
-    /// burn() with amount greater than balance panics.
     #[test]
     #[should_panic(expected = "insufficient balance")]
     fn test_burn_more_than_balance() {
         let (env, contract_id, admin) = deploy();
         let token = TokenContractClient::new(&env, &contract_id);
-        token.burn(&admin, &1_000_001); // balance is 1_000_000
+        token.burn(&admin, &1_000_001);
     }
 
-    /// mint() with amount 0 panics — zero mints are not allowed.
     #[test]
     #[should_panic(expected = "amount must be positive")]
     fn test_mint_zero_amount() {
@@ -651,7 +741,6 @@ mod tests {
         token.mint(&recipient, &0);
     }
 
-    /// mint() with a negative amount panics.
     #[test]
     #[should_panic(expected = "amount must be positive")]
     fn test_mint_negative_amount() {
@@ -661,7 +750,6 @@ mod tests {
         token.mint(&recipient, &-1);
     }
 
-    /// transfer() with amount 0 panics — zero transfers are not allowed.
     #[test]
     #[should_panic(expected = "amount must be positive")]
     fn test_transfer_zero_amount() {
@@ -671,7 +759,6 @@ mod tests {
         token.transfer(&admin, &recipient, &0);
     }
 
-    /// approve() with a negative amount panics.
     #[test]
     #[should_panic(expected = "amount cannot be negative")]
     fn test_approve_negative_amount() {
@@ -681,7 +768,6 @@ mod tests {
         token.approve(&admin, &spender, &-1);
     }
 
-    /// burn() with amount 0 panics — zero burns are not allowed.
     #[test]
     #[should_panic(expected = "amount must be positive")]
     fn test_burn_zero_amount() {
@@ -692,17 +778,10 @@ mod tests {
 
     // ── Unauthorized mint ─────────────────────────────────────────────────────
 
-    /// A non-admin address cannot call mint(); the invocation panics because
-    /// the contract calls admin.require_auth() and the admin did not authorize
-    /// the call. This test uses a fresh Env WITHOUT mock_all_auths so that
-    /// auth is actually enforced.
     #[test]
     #[should_panic]
     fn test_unauthorized_mint() {
-        // Use a fresh env with NO mock_all_auths so auth is enforced.
-        // The constructor runs without requiring auth, so registration succeeds.
         let env = Env::default();
-        // Do NOT call env.mock_all_auths().
         let admin = Address::generate(&env);
         let stranger = Address::generate(&env);
         let contract_id = env.register(
@@ -717,11 +796,9 @@ mod tests {
         );
         let token = TokenContractClient::new(&env, &contract_id);
 
-        // mint() calls require_admin which calls admin.require_auth().
-        // Since no auth has been provided, this must panic.
         let recipient = Address::generate(&env);
         token.mint(&recipient, &1_000);
 
-        let _ = stranger; // suppress unused warning
+        let _ = stranger;
     }
 }

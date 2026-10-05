@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-05
 
+- contracts/multisig, vesting, token: storage TTL management (E2).
+  Every public entry point calls `bump_instance()` so instance storage
+  (OWNERS, THRESHOLD, PROP\_COUNT, ADMIN, PAUSED, SCHED\_ID, NAME, SYMBOL,
+  DECIMALS, TOTAL) never expires while the contract is in active use.
+  Persistent entries are bumped on every write: Balance and Allowance (token);
+  Proposal and Confirm (multisig); Schedule and BeneficiarySchedules (vesting,
+  already bumped, now uses shared public constants).
+  Constants: `INSTANCE_BUMP_LEDGERS = 6_307_200` (~1 year),
+  `INSTANCE_BUMP_THRESHOLD = 518_400` (~30 days), same for persistent.
+  New tests: `test_ttl_instance_bumped_on_submit`,
+  `test_ttl_proposal_bumped_on_confirm`, `test_ttl_confirm_entry_bumped`
+  (multisig); `test_ttl_instance_bumped_on_mint`,
+  `test_ttl_balance_bumped_on_mint`, `test_ttl_allowance_bumped_on_approve`
+  (token); `test_ttl_instance_bumped_on_create_schedule`,
+  `test_ttl_schedule_bumped_on_create`, `test_ttl_instance_bumped_on_claim`
+  (vesting). Counts: multisig 35, token 30, vesting 38 (103 total).
+  Added docs/ttl.md and README "Storage TTL constants" section.
+
+### Added — 2026-10-05
+
 - contracts/multisig, vesting, token: replace `initialize()` with
   `__constructor` (soroban-sdk 27, E1). Constructor args are supplied once at
   deploy time; the initialization front-running window is eliminated. New

@@ -26,10 +26,13 @@ const ADMIN: Symbol = symbol_short!("ADMIN");
 const PAUSED: Symbol = symbol_short!("PAUSED");
 const SCHED_ID: Symbol = symbol_short!("SCHED_ID");
 
-/// Persistent storage TTL bump: 1 year in ledgers (~5 seconds each).
-const TTL_BUMP_LEDGERS: u32 = 6_307_200; // ~1 year
-/// Minimum TTL threshold before bumping.
-const TTL_BUMP_THRESHOLD: u32 = 518_400; // ~30 days
+/// Extend instance and persistent storage to ~1 year (ledgers of ~5 s each).
+pub const INSTANCE_BUMP_LEDGERS: u32 = 6_307_200;
+/// Only extend when the remaining TTL drops below ~30 days.
+pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
+/// Persistent Schedule / BeneficiarySchedules entries use the same window.
+pub const PERSISTENT_BUMP_LEDGERS: u32 = 6_307_200;
+pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
 
 // ─── Data types ────────────────────────────────────────────────────────────
 
@@ -102,12 +105,14 @@ impl VestingContract {
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&PAUSED, &false);
         env.storage().instance().set(&SCHED_ID, &0u64);
+        Self::bump_instance(&env);
     }
 
     // ── Schedule management ──────────────────────────────────────────────────
 
     /// Create a new vesting schedule. Caller must be admin.
     pub fn create_schedule(env: Env, params: CreateScheduleParams) -> u64 {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         Self::require_not_paused(&env);
 
@@ -148,8 +153,8 @@ impl VestingContract {
             .set(&DataKey::Schedule(next_id), &schedule);
         env.storage().persistent().extend_ttl(
             &DataKey::Schedule(next_id),
-            TTL_BUMP_THRESHOLD,
-            TTL_BUMP_LEDGERS,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
         );
 
         let mut ids: Vec<u64> = env
@@ -164,8 +169,8 @@ impl VestingContract {
         );
         env.storage().persistent().extend_ttl(
             &DataKey::BeneficiarySchedules(params.beneficiary.clone()),
-            TTL_BUMP_THRESHOLD,
-            TTL_BUMP_LEDGERS,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
         );
 
         env.storage().instance().set(&SCHED_ID, &next_id);
@@ -180,6 +185,7 @@ impl VestingContract {
 
     /// Claim all currently vested-but-unclaimed tokens for a schedule.
     pub fn claim(env: Env, schedule_id: u64) -> i128 {
+        Self::bump_instance(&env);
         Self::require_not_paused(&env);
 
         let mut schedule: VestingSchedule = env
@@ -212,8 +218,8 @@ impl VestingContract {
             .set(&DataKey::Schedule(schedule_id), &schedule);
         env.storage().persistent().extend_ttl(
             &DataKey::Schedule(schedule_id),
-            TTL_BUMP_THRESHOLD,
-            TTL_BUMP_LEDGERS,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
         );
 
         let tk = token::Client::new(&env, &schedule.token);
@@ -236,6 +242,7 @@ impl VestingContract {
     /// Vested-but-unclaimed tokens are paid to the beneficiary first.
     /// Only the truly unvested portion is returned to `recipient`.
     pub fn revoke(env: Env, schedule_id: u64, recipient: Address) -> i128 {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
 
         let mut schedule: VestingSchedule = env
@@ -272,8 +279,8 @@ impl VestingContract {
             .set(&DataKey::Schedule(schedule_id), &schedule);
         env.storage().persistent().extend_ttl(
             &DataKey::Schedule(schedule_id),
-            TTL_BUMP_THRESHOLD,
-            TTL_BUMP_LEDGERS,
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
         );
 
         if unvested > 0 {
@@ -290,12 +297,14 @@ impl VestingContract {
     // ── Pause ────────────────────────────────────────────────────────────
 
     pub fn pause(env: Env) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         env.storage().instance().set(&PAUSED, &true);
         env.events().publish((EVT_PAUSED,), ());
     }
 
     pub fn unpause(env: Env) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         env.storage().instance().set(&PAUSED, &false);
         env.events().publish((EVT_UNPAUSED,), ());
@@ -304,6 +313,7 @@ impl VestingContract {
     // ── Admin transfer ──────────────────────────────────────────────────────
 
     pub fn transfer_admin(env: Env, new_admin: Address) {
+        Self::bump_instance(&env);
         Self::require_admin(&env);
         new_admin.require_auth();
         env.storage().instance().set(&ADMIN, &new_admin);
@@ -313,6 +323,7 @@ impl VestingContract {
     // ── Read functions ─────────────────────────────────────────────────────
 
     pub fn get_schedule(env: Env, schedule_id: u64) -> VestingSchedule {
+        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Schedule(schedule_id))
@@ -320,6 +331,7 @@ impl VestingContract {
     }
 
     pub fn get_claimable(env: Env, schedule_id: u64) -> i128 {
+        Self::bump_instance(&env);
         let schedule: VestingSchedule = env
             .storage()
             .persistent()
@@ -330,6 +342,7 @@ impl VestingContract {
     }
 
     pub fn get_beneficiary_schedules(env: Env, beneficiary: Address) -> Vec<u64> {
+        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::BeneficiarySchedules(beneficiary))
@@ -337,6 +350,7 @@ impl VestingContract {
     }
 
     pub fn get_admin(env: Env) -> Address {
+        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&ADMIN)
@@ -344,14 +358,24 @@ impl VestingContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
+        Self::bump_instance(&env);
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
     pub fn schedule_count(env: Env) -> u64 {
+        Self::bump_instance(&env);
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
+
+    /// Extend instance storage TTL so ADMIN, PAUSED and SCHED_ID do not expire
+    /// while the contract is in active use.
+    fn bump_instance(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
+    }
 
     fn require_admin(env: &Env) {
         let admin: Address = env
@@ -435,6 +459,91 @@ mod tests {
         assert_eq!(vesting.get_admin(), admin);
         assert!(!vesting.is_paused());
         assert_eq!(vesting.schedule_count(), 0);
+    }
+
+    // ── TTL tests ─────────────────────────────────────────────────────────────
+
+    /// create_schedule() bumps instance TTL above INSTANCE_BUMP_THRESHOLD.
+    #[test]
+    fn test_ttl_instance_bumped_on_create_schedule() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        let ttl = env.as_contract(&vesting_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} should exceed INSTANCE_BUMP_THRESHOLD {INSTANCE_BUMP_THRESHOLD}"
+        );
+    }
+
+    /// create_schedule() bumps persistent Schedule TTL.
+    #[test]
+    fn test_ttl_schedule_bumped_on_create() {
+        use soroban_sdk::testutils::storage::Persistent as _;
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        let ttl = env.as_contract(&vesting_id, || {
+            env.storage().persistent().get_ttl(&DataKey::Schedule(id))
+        });
+        assert!(
+            ttl > PERSISTENT_BUMP_THRESHOLD,
+            "schedule TTL {ttl} should exceed PERSISTENT_BUMP_THRESHOLD {PERSISTENT_BUMP_THRESHOLD}"
+        );
+    }
+
+    /// claim() bumps instance TTL.
+    #[test]
+    fn test_ttl_instance_bumped_on_claim() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.claim(&id);
+
+        let ttl = env.as_contract(&vesting_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} after claim should exceed {INSTANCE_BUMP_THRESHOLD}"
+        );
     }
 
     // ── basic create + claim ─────────────────────────────────────────────────

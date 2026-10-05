@@ -1,0 +1,73 @@
+# Storage TTL Reference
+
+Soroban persistent and instance storage entries expire after a certain number
+of ledgers.  Expired **persistent** entries are archived by the network and can
+be restored (they are not deleted).  Expired **instance** storage, however,
+makes the entire contract unusable until the instance is restored.
+
+Because instance storage holds the core state of every contract in this
+platform (owners, admin, paused flag, counters), a contract with an expired
+instance cannot be called.  Every public entry point therefore bumps the
+instance TTL on each call.
+
+## Constants (all three contracts)
+
+| Constant | Value | Approx. | Used for |
+|----------|-------|---------|---------|
+| `INSTANCE_BUMP_LEDGERS` | 6 307 200 | ~1 year | Extend instance TTL to |
+| `INSTANCE_BUMP_THRESHOLD` | 518 400 | ~30 days | Only extend when TTL < this |
+| `PERSISTENT_BUMP_LEDGERS` | 6 307 200 | ~1 year | Extend persistent entry TTL to |
+| `PERSISTENT_BUMP_THRESHOLD` | 518 400 | ~30 days | Only extend when TTL < this |
+
+Ledger cadence assumption: ~5 seconds per ledger on Stellar mainnet/testnet.
+
+## What expires and how to restore it
+
+### Instance storage
+
+**Contract:** multisig, vesting, token  
+**Keys:** OWNERS, THRESHOLD, PROP\_COUNT (multisig); ADMIN, PAUSED, SCHED\_ID (vesting);
+ADMIN, PAUSED, TOTAL, NAME, SYMBOL, DECIMALS (token)
+
+If instance storage is archived, the contract cannot be invoked at all until
+it is restored.  Use `stellar contract restore` or the Stellar SDK's
+`restoreFootprint` operation targeting the contract instance.
+
+Instance TTL is bumped on **every public function call**, so an actively used
+contract will never archive.
+
+### Persistent storage
+
+**Contract:** vesting  
+**Keys:** `Schedule(id)`, `BeneficiarySchedules(address)`  
+Bumped on every write (`create_schedule`, `claim`, `revoke`).
+
+**Contract:** multisig  
+**Keys:** `Proposal(id)`, `Confirm(proposal_id, address)`  
+Bumped on every write (`submit`, `confirm`, `revoke_confirmation`, `execute`, `cancel`).
+
+**Contract:** token  
+**Keys:** `Balance(address)`, `Allowance(owner, spender)`  
+Bumped on every write (`mint`, `burn`, `transfer`, `transfer_from`, `approve`).
+
+If a persistent entry is archived it can be restored with:
+
+```bash
+stellar contract restore \
+  --id <CONTRACT_ID> \
+  --source <ACCOUNT> \
+  --network testnet \
+  --key <XDR_KEY>
+```
+
+## Choosing constants
+
+The threshold/extend pair follows the standard Soroban pattern: only extend
+when there are fewer than `THRESHOLD` ledgers remaining, and extend to
+`BUMP_LEDGERS`.  This avoids paying rent on every call when the TTL is already
+healthy.
+
+For a production deployment adjust the constants to match the expected call
+frequency and risk tolerance.  A contract that is called at least once a month
+(> 518 400 ledgers at 5 s/ledger) will never approach expiry with the defaults
+above.

@@ -259,6 +259,22 @@ Unit tests in `contracts/vesting/src/lib.rs` cover:
 
 ---
 
+## Storage TTL constants
+
+All three contracts share the same TTL strategy.  Instance storage (which holds
+admin, owners, pause flag, and counters) is extended on every public call.
+Persistent entries (schedules, balances, proposals) are extended on every write.
+
+| Constant | Value | Approx. |
+|----------|-------|---------|
+| `INSTANCE_BUMP_LEDGERS` / `PERSISTENT_BUMP_LEDGERS` | 6 307 200 | ~1 year |
+| `INSTANCE_BUMP_THRESHOLD` / `PERSISTENT_BUMP_THRESHOLD` | 518 400 | ~30 days |
+
+See [docs/ttl.md](docs/ttl.md) for full details on what expires, the restore
+procedure, and how to tune the constants for a production deployment.
+
+---
+
 ## Development
 
 ```bash
