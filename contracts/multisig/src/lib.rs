@@ -141,13 +141,15 @@ pub struct MultisigContract;
 
 #[contractimpl]
 impl MultisigContract {
-    // ── Init ────────────────────────────────────────────────────────────────
+    // ── Constructor ─────────────────────────────────────────────────────────
 
-    /// Initialize with owner list and confirmation threshold.
-    pub fn initialize(env: Env, owners: Vec<Address>, threshold: u32) {
-        if env.storage().instance().has(&OWNERS) {
-            panic!("already initialized");
-        }
+    /// Constructor: initialise with owner list and confirmation threshold.
+    ///
+    /// Called automatically at deploy time — there is no separate
+    /// `initialize` step.  Because the constructor runs atomically with
+    /// deployment the front-running window that existed with a two-step
+    /// initialize() is eliminated.
+    pub fn __constructor(env: Env, owners: Vec<Address>, threshold: u32) {
         if owners.is_empty() {
             panic!("need at least one owner");
         }
@@ -521,14 +523,12 @@ mod tests {
         let o2 = Address::generate(&env);
         let o3 = Address::generate(&env);
 
-        let contract_id = env.register(MultisigContract, ());
-        let ms = MultisigContractClient::new(&env, &contract_id);
-
         let mut owners = Vec::new(&env);
         owners.push_back(o1.clone());
         owners.push_back(o2.clone());
         owners.push_back(o3.clone());
-        ms.initialize(&owners, &2);
+
+        let contract_id = env.register(MultisigContract, (owners, 2u32));
 
         (env, contract_id, o1, o2, o3)
     }
@@ -543,6 +543,78 @@ mod tests {
             function: func,
             args: no_args(env),
         })
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Constructor tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Constructor with an empty owner list panics with "need at least one owner".
+    #[test]
+    #[should_panic(expected = "need at least one owner")]
+    fn test_constructor_empty_owners_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let owners: Vec<Address> = Vec::new(&env);
+        env.register(MultisigContract, (owners, 1u32));
+    }
+
+    /// Constructor with threshold = 0 panics with "invalid threshold".
+    #[test]
+    #[should_panic(expected = "invalid threshold")]
+    fn test_constructor_zero_threshold_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let mut owners = Vec::new(&env);
+        owners.push_back(Address::generate(&env));
+        env.register(MultisigContract, (owners, 0u32));
+    }
+
+    /// Constructor with threshold > owner count panics with "invalid threshold".
+    #[test]
+    #[should_panic(expected = "invalid threshold")]
+    fn test_constructor_threshold_exceeds_owners_panics() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let mut owners = Vec::new(&env);
+        owners.push_back(Address::generate(&env));
+        owners.push_back(Address::generate(&env));
+        // threshold = 3 but only 2 owners
+        env.register(MultisigContract, (owners, 3u32));
+    }
+
+    /// An owner added via AddOwner proposal and then removed via RemoveOwner
+    /// proposal leaves the owner set in its original state.
+    #[test]
+    fn test_owner_list_after_add_remove_cycle() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let new_owner = Address::generate(&env);
+
+        // Add new_owner
+        let add_id = ms.submit(
+            &o1,
+            &ProposalAction::AddOwner(new_owner.clone()),
+            &String::from_str(&env, "add"),
+        );
+        ms.confirm(&o1, &add_id);
+        ms.confirm(&o2, &add_id);
+        ms.execute(&add_id);
+        assert_eq!(ms.get_owners().len(), 4);
+        assert!(ms.is_owner(&new_owner));
+
+        // Remove new_owner — now 4 owners, threshold 2, so removal is safe
+        let remove_id = ms.submit(
+            &o1,
+            &ProposalAction::RemoveOwner(new_owner.clone()),
+            &String::from_str(&env, "remove"),
+        );
+        ms.confirm(&o1, &remove_id);
+        ms.confirm(&o2, &remove_id);
+        ms.execute(&remove_id);
+        assert_eq!(ms.get_owners().len(), 3);
+        assert!(!ms.is_owner(&new_owner));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -570,12 +642,11 @@ mod tests {
 
         let o1 = Address::generate(&env);
         let o2 = Address::generate(&env);
-        let contract_id = env.register(MultisigContract, ());
-        let ms = MultisigContractClient::new(&env, &contract_id);
         let mut owners = Vec::new(&env);
         owners.push_back(o1.clone());
         owners.push_back(o2.clone());
-        ms.initialize(&owners, &2); // threshold = 2
+        let contract_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &contract_id);
 
         let new_owner = Address::generate(&env);
         let id = ms.submit(

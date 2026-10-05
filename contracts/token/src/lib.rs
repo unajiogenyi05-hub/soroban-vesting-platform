@@ -45,9 +45,15 @@ pub struct TokenContract;
 
 #[contractimpl]
 impl TokenContract {
-    // ── Init ────────────────────────────────────────────────────────────────
+    // ── Constructor ─────────────────────────────────────────────────────────
 
-    pub fn initialize(
+    /// Constructor: set token metadata and mint initial supply at deploy time.
+    ///
+    /// Called automatically at deploy time — there is no separate
+    /// `initialize` step.  Because the constructor runs atomically with
+    /// deployment the front-running window that existed with a two-step
+    /// initialize() is eliminated.
+    pub fn __constructor(
         env: Env,
         admin: Address,
         name: String,
@@ -55,9 +61,6 @@ impl TokenContract {
         decimals: u32,
         initial_supply: i128,
     ) {
-        if env.storage().instance().has(&ADMIN) {
-            panic!("already initialized");
-        }
         if decimals > 18 {
             panic!("decimals too large");
         }
@@ -277,14 +280,15 @@ mod tests {
         let env = Env::default();
         env.mock_all_auths();
         let admin = Address::generate(&env);
-        let contract_id = env.register(TokenContract, ());
-        let token = TokenContractClient::new(&env, &contract_id);
-        token.initialize(
-            &admin,
-            &String::from_str(&env, "Vesting Token"),
-            &String::from_str(&env, "VEST"),
-            &7u32,
-            &1_000_000i128,
+        let contract_id = env.register(
+            TokenContract,
+            (
+                admin.clone(),
+                String::from_str(&env, "Vesting Token"),
+                String::from_str(&env, "VEST"),
+                7u32,
+                1_000_000i128,
+            ),
         );
         (env, contract_id, admin)
     }
@@ -347,7 +351,7 @@ mod tests {
     //
     // Each test isolates a single call after deploy so that
     // `env.events().all()` contains exactly the events from that call.
-    // The initialize() call (which calls _mint internally) does NOT emit
+    // The __constructor call (which calls _mint internally) does NOT emit
     // a "mint" event — only the public mint() function does.
     // We assert both the topic (Symbol) and the data payload.
 
@@ -696,47 +700,27 @@ mod tests {
     #[should_panic]
     fn test_unauthorized_mint() {
         // Use a fresh env with NO mock_all_auths so auth is enforced.
+        // The constructor runs without requiring auth, so registration succeeds.
         let env = Env::default();
+        // Do NOT call env.mock_all_auths().
         let admin = Address::generate(&env);
         let stranger = Address::generate(&env);
-        let contract_id = env.register(TokenContract, ());
+        let contract_id = env.register(
+            TokenContract,
+            (
+                admin.clone(),
+                String::from_str(&env, "T"),
+                String::from_str(&env, "T"),
+                7u32,
+                0i128,
+            ),
+        );
         let token = TokenContractClient::new(&env, &contract_id);
 
-        // Initialize with mock auth only for this call
-        env.mock_all_auths();
-        token.initialize(
-            &admin,
-            &String::from_str(&env, "T"),
-            &String::from_str(&env, "T"),
-            &7u32,
-            &0i128,
-        );
-
-        // Now call mint as the stranger — mock_all_auths is still active so
-        // we must use a second env with no mocks to prove the auth check fires.
-        // Create a separate env, register a fresh contract, initialize it
-        // without mock_all_auths for the initialize call itself (which requires
-        // no auth), then call mint with no auth mock.
-        let env2 = Env::default();
-        // Do NOT call env2.mock_all_auths().
-        let admin2 = Address::generate(&env2);
-        let contract2 = env2.register(TokenContract, ());
-        let token2 = TokenContractClient::new(&env2, &contract2);
-
-        // initialize() stores the admin but does not call require_auth on
-        // anyone, so it succeeds without mock auth.
-        token2.initialize(
-            &admin2,
-            &String::from_str(&env2, "T"),
-            &String::from_str(&env2, "T"),
-            &7u32,
-            &0i128,
-        );
-
-        // mint() calls require_admin which calls admin2.require_auth().
+        // mint() calls require_admin which calls admin.require_auth().
         // Since no auth has been provided, this must panic.
-        let recipient = Address::generate(&env2);
-        token2.mint(&recipient, &1_000);
+        let recipient = Address::generate(&env);
+        token.mint(&recipient, &1_000);
 
         let _ = stranger; // suppress unused warning
     }

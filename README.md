@@ -184,7 +184,7 @@ create_schedule(params)
 
 | Function | Auth | Description |
 |----------|------|-------------|
-| `initialize(admin, name, symbol, decimals, initial_supply)` | — | One-time init |
+| `__constructor(admin, name, symbol, decimals, initial_supply)` | — | Called once at deploy time; sets metadata and mints initial supply |
 | `mint(to, amount)` | admin | Mint new tokens |
 | `burn(from, amount)` | from | Burn own tokens |
 | `transfer(from, to, amount)` | from | Transfer |
@@ -197,7 +197,7 @@ create_schedule(params)
 
 | Function | Auth | Description |
 |----------|------|-------------|
-| `initialize(admin)` | — | One-time init |
+| `__constructor(admin)` | — | Called once at deploy time; sets admin |
 | `create_schedule(params)` | admin | Lock tokens, create schedule |
 | `claim(schedule_id)` | beneficiary | Claim vested tokens |
 | `revoke(schedule_id, recipient)` | admin | Return unvested tokens |
@@ -212,7 +212,7 @@ create_schedule(params)
 
 | Function | Auth | Description |
 |----------|------|-------------|
-| `initialize(owners, threshold)` | — | One-time init |
+| `__constructor(owners, threshold)` | — | Called once at deploy time; sets owner list and threshold |
 | `submit(proposer, action, description)` | proposer (owner) | Create proposal with a `ProposalAction` |
 | `confirm(owner, proposal_id)` | owner | Add confirmation |
 | `revoke_confirmation(owner, proposal_id)` | owner | Remove confirmation |

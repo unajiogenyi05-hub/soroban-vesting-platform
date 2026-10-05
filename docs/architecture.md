@@ -1,5 +1,30 @@
 # Architecture
 
+## Deployment model
+
+All three contracts use Soroban constructors (`__constructor`) introduced in
+soroban-sdk 27. Constructor arguments are supplied once at deploy time after
+the `--` separator in `stellar contract deploy`. There is no separate
+`initialize` call.
+
+Because the constructor runs atomically with deployment, it is impossible for a
+third party to front-run the initialization window that existed with the old
+two-step `deploy → initialize` pattern (see also SECURITY.md).
+
+```bash
+# Token — admin, name, symbol, decimals, initial_supply
+stellar contract deploy --wasm token.wasm --source admin --network testnet \
+  -- --admin "$ADMIN" --name '"VEST"' --symbol '"VST"' --decimals 7 --initial_supply 0
+
+# Vesting — admin
+stellar contract deploy --wasm vesting.wasm --source admin --network testnet \
+  -- --admin "$ADMIN"
+
+# Multisig — owners (Vec<Address>), threshold (u32)
+stellar contract deploy --wasm multisig.wasm --source admin --network testnet \
+  -- --owners '["G...", "G...", "G..."]' --threshold 2
+```
+
 ## Overview
 
 ```
