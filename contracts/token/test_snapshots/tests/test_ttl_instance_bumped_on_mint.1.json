@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 2,
+    "address": 3,
     "nonce": 0,
     "mux_id": 0
   },
@@ -13,14 +13,22 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "pause",
-              "args": []
+              "function_name": "mint",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "i128": "1000"
+                }
+              ]
             }
           },
           "sub_invocations": []
         }
       ]
-    ]
+    ],
+    []
   ],
   "ledger": {
     "protocol_version": 27,
@@ -86,6 +94,33 @@
             "contract_data": {
               "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Balance"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "1000"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6307200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": "ledger_key_contract_instance",
               "durability": "persistent",
               "val": {
@@ -123,7 +158,7 @@
                         "symbol": "PAUSED"
                       },
                       "val": {
-                        "bool": true
+                        "bool": false
                       }
                     },
                     {
@@ -139,7 +174,7 @@
                         "symbol": "TOTAL"
                       },
                       "val": {
-                        "i128": "1000000"
+                        "i128": "1001000"
                       }
                     }
                   ]
@@ -167,24 +202,5 @@
       }
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "pause"
-              }
-            ],
-            "data": "void"
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }
