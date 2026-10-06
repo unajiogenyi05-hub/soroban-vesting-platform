@@ -470,7 +470,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       },
       {
         "entry": {
@@ -574,7 +574,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       },
       {
         "entry": {
@@ -622,7 +622,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       },
       {
         "entry": {
@@ -1050,7 +1050,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       }
     ]
   },

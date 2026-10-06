@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-06
 
+- contracts/multisig, vesting, token: lower `INSTANCE/PERSISTENT_BUMP_LEDGERS`
+  from 6 307 200 to 3 110 400 (E2-CHECK). The previous value exceeded the
+  network's `max_entry_ttl` (3 110 400 ledgers ≈ 180 days, protocol 29,
+  source: stellar-core soroban-settings). Values above `max_entry_ttl` are
+  silently clamped by the host, so using the exact ceiling is both correct and
+  maximally protective. Threshold (518 400, ~30 days) is unchanged.
+  Updated docs/ttl.md with explanation and source reference.
+  All existing TTL tests continue to pass; no bump call was missing.
+
 - contracts/vesting: reorder `revoke()` to checks-effects-interactions (E3).
   State mutation (`claimed_amount`, `status = Revoked`, persistent write + TTL
   bump) now happens before both token transfers, matching the pattern already
@@ -25,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Persistent entries are bumped on every write: Balance and Allowance (token);
   Proposal and Confirm (multisig); Schedule and BeneficiarySchedules (vesting,
   already bumped, now uses shared public constants).
-  Constants: `INSTANCE_BUMP_LEDGERS = 6_307_200` (~1 year),
+  Constants: `INSTANCE_BUMP_LEDGERS = 3_110_400` (~180 days, network max_entry_ttl),
   `INSTANCE_BUMP_THRESHOLD = 518_400` (~30 days), same for persistent.
   New tests: `test_ttl_instance_bumped_on_submit`,
   `test_ttl_proposal_bumped_on_confirm`, `test_ttl_confirm_entry_bumped`

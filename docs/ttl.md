@@ -14,12 +14,28 @@ instance TTL on each call.
 
 | Constant | Value | Approx. | Used for |
 |----------|-------|---------|---------|
-| `INSTANCE_BUMP_LEDGERS` | 6 307 200 | ~1 year | Extend instance TTL to |
+| `INSTANCE_BUMP_LEDGERS` | 3 110 400 | ~180 days | Extend instance TTL to |
 | `INSTANCE_BUMP_THRESHOLD` | 518 400 | ~30 days | Only extend when TTL < this |
-| `PERSISTENT_BUMP_LEDGERS` | 6 307 200 | ~1 year | Extend persistent entry TTL to |
+| `PERSISTENT_BUMP_LEDGERS` | 3 110 400 | ~180 days | Extend persistent entry TTL to |
 | `PERSISTENT_BUMP_THRESHOLD` | 518 400 | ~30 days | Only extend when TTL < this |
 
 Ledger cadence assumption: ~5 seconds per ledger on Stellar mainnet/testnet.
+
+### Why 3 110 400 and not a larger value
+
+The Soroban protocol enforces a hard ceiling called `max_entry_ttl`.  Any
+`extend_ttl` call requesting more ledgers than `max_entry_ttl` is silently
+clamped to `max_entry_ttl` by the host — the transaction does not fail, but the
+resulting TTL is lower than requested.  Using a value that exceeds
+`max_entry_ttl` is therefore misleading in documentation and wastes rent fees.
+
+`max_entry_ttl = 3 110 400` ledgers (≈ 180 days at 5 s/ledger) as set in
+`stellar-core/soroban-settings/testnet_settings_upgrade.json` (protocol 29,
+applies to both testnet and mainnet).  The constants in this repository use
+exactly that ceiling.
+
+Source: <https://github.com/stellar/stellar-core/blob/master/soroban-settings/testnet_settings_upgrade.json>
+
 
 ## What expires and how to restore it
 
