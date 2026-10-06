@@ -31,8 +31,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-v2-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-v2-
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
 
       - name: Fmt check
         run: cargo fmt --all -- --check
@@ -41,7 +41,7 @@ jobs:
         run: cargo clippy --all --target wasm32v1-none -- -D warnings
 
       - name: Tests
-        run: cargo test --all --locked
+        run: cargo test --all
 
       - name: Install stellar-cli
         uses: stellar/stellar-cli@v28.0.0
