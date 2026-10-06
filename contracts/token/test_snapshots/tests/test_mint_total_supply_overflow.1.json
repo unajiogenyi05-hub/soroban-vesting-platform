@@ -6,6 +6,28 @@
   },
   "auth": [
     [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "mint",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "i128": "170141183460469231731687303715884105727"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     []
   ],
   "ledger": {
@@ -24,6 +46,26 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "801925984706572462"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "vec": [
@@ -31,19 +73,19 @@
                     "symbol": "Balance"
                   },
                   {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "i128": "1000000"
+                "i128": "170141183460469231731687303715884105727"
               }
             }
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       },
       {
         "entry": {
@@ -81,7 +123,7 @@
                         "symbol": "NAME"
                       },
                       "val": {
-                        "string": "Vesting Token"
+                        "string": "T"
                       }
                     },
                     {
@@ -97,7 +139,7 @@
                         "symbol": "SYMBOL"
                       },
                       "val": {
-                        "string": "VEST"
+                        "string": "T"
                       }
                     },
                     {
@@ -105,7 +147,7 @@
                         "symbol": "TOTAL"
                       },
                       "val": {
-                        "i128": "1000000"
+                        "i128": "170141183460469231731687303715884105727"
                       }
                     }
                   ]
@@ -115,7 +157,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       },
       {
         "entry": {
@@ -129,7 +171,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 6307200
+        "live_until": 3110400
       }
     ]
   },
