@@ -259,6 +259,37 @@ Unit tests in `contracts/vesting/src/lib.rs` cover:
 
 ---
 
+## Pause semantics
+
+Each contract has a boolean pause flag set by the admin via `pause()` /
+`unpause()`.  The flag is intentionally not a blanket lock — some functions
+must remain available even during an emergency freeze.
+
+### Vesting contract
+
+| Function | Pause-gated? | Rationale |
+|----------|:------------:|-----------|
+| `create_schedule` | ✓ yes | No new funds should be locked while paused |
+| `claim` | ✓ yes | Outbound transfers halted during an incident |
+| `revoke` | **✗ no** | The admin must be able to recover unvested funds and pay out already-vested tokens even while the contract is paused, so that a paused contract is never a permanent fund lock |
+| `transfer_admin` | **✗ no** | Admin hand-off must always be possible; blocking it could leave the contract stuck with no way to unpause |
+
+### Token contract
+
+| Function | Pause-gated? | Rationale |
+|----------|:------------:|-----------|
+| `mint` | ✓ yes | No new supply should be created during an incident |
+| `burn` | ✓ yes | Consistent with mint pause |
+| `transfer` / `transfer_from` | ✓ yes | All outbound token movement halted |
+| `approve` | ✓ yes | No new spending allowances while paused |
+| `transfer_admin` | **✗ no** | Same reason as vesting — admin transfer must always work |
+
+The multisig contract has no pause mechanism; it acts as the vesting admin and
+can call `pause()` / `unpause()` on the vesting contract through normal proposal
+flow.
+
+---
+
 ## Storage TTL constants
 
 All three contracts share the same TTL strategy.  Instance storage (which holds
@@ -267,7 +298,7 @@ Persistent entries (schedules, balances, proposals) are extended on every write.
 
 | Constant | Value | Approx. |
 |----------|-------|---------|
-| `INSTANCE_BUMP_LEDGERS` / `PERSISTENT_BUMP_LEDGERS` | 6 307 200 | ~1 year |
+| `INSTANCE_BUMP_LEDGERS` / `PERSISTENT_BUMP_LEDGERS` | 3 110 400 | ~180 days |
 | `INSTANCE_BUMP_THRESHOLD` / `PERSISTENT_BUMP_THRESHOLD` | 518 400 | ~30 days |
 
 See [docs/ttl.md](docs/ttl.md) for full details on what expires, the restore

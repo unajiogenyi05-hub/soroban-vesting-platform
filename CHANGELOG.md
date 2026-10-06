@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-06
 
+- README: "Pause semantics" section (E5). Documents which functions are
+  pause-gated in vesting and token, and why `revoke()` and `transfer_admin()`
+  are intentionally not pause-gated in vesting (admin must be able to recover
+  funds and hand off control even during a freeze). Token `transfer_admin` is
+  also not pause-gated for the same reason. Fixed stale TTL constant values
+  in the README "Storage TTL constants" table (3 110 400 / ~180 days).
+
 - contracts/vesting, token: overflow guards (E4).
   `create_schedule` now rejects schedules where `start_time + cliff_duration`
   or `start_time + total_duration` would overflow `u64` using `checked_add`
