@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — 2026-10-06
 
 - contracts/multisig, vesting, token: remove `bump_instance()` from pure
-  getters; add permissionless `extend_ttl()` (E8).
+  getters; add permissionless `extend_ttl()` (E8, PR #46, merged 2026-10-06).
   Pure read-only functions (`get_*`, `is_*`, `name`, `symbol`, `decimals`,
   `total_supply`, `balance`, `allowance`, `admin`, `proposal_count`,
   `has_confirmed`, `is_owner`, `schedule_count`) no longer carry a write
@@ -22,14 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   updated README function tables.
   Counts: multisig 36, token 33, vesting 42 (111 total).
 
-- README: "Pause semantics" section (E5). Documents which functions are
+- README: "Pause semantics" section (E5, PR #45, merged 2026-10-06). Documents which functions are
   pause-gated in vesting and token, and why `revoke()` and `transfer_admin()`
   are intentionally not pause-gated in vesting (admin must be able to recover
   funds and hand off control even during a freeze). Token `transfer_admin` is
   also not pause-gated for the same reason. Fixed stale TTL constant values
   in the README "Storage TTL constants" table (3 110 400 / ~180 days).
 
-- contracts/vesting, token: overflow guards (E4).
+- contracts/vesting, token: overflow guards (E4, PR #44, merged 2026-10-06).
   `create_schedule` now rejects schedules where `start_time + cliff_duration`
   or `start_time + total_duration` would overflow `u64` using `checked_add`
   with a clear panic message; without this guard either call would trap inside
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Counts: multisig 35, token 32, vesting 41 (108 total).
 
 - contracts/multisig, vesting, token: lower `INSTANCE/PERSISTENT_BUMP_LEDGERS`
-  from 6 307 200 to 3 110 400 (E2-CHECK). The previous value exceeded the
+  from 6 307 200 to 3 110 400 (E2-CHECK, PR #43, merged 2026-10-06). The previous value exceeded the
   network's `max_entry_ttl` (3 110 400 ledgers ≈ 180 days, protocol 29,
   source: stellar-core soroban-settings). Values above `max_entry_ttl` are
   silently clamped by the host, so using the exact ceiling is both correct and
@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Updated docs/ttl.md with explanation and source reference.
   All existing TTL tests continue to pass; no bump call was missing.
 
-- contracts/vesting: reorder `revoke()` to checks-effects-interactions (E3).
+- contracts/vesting: reorder `revoke()` to checks-effects-interactions (E3, PR #42, merged 2026-10-06).
   State mutation (`claimed_amount`, `status = Revoked`, persistent write + TTL
   bump) now happens before both token transfers, matching the pattern already
   used in `claim()`. New test: `test_revoke_cei_state_and_balances` verifies
@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-05
 
-- contracts/multisig, vesting, token: storage TTL management (E2).
+- contracts/multisig, vesting, token: storage TTL management (E2, PR #41, merged 2026-10-05).
   Every public entry point calls `bump_instance()` so instance storage
   (OWNERS, THRESHOLD, PROP\_COUNT, ADMIN, PAUSED, SCHED\_ID, NAME, SYMBOL,
   DECIMALS, TOTAL) never expires while the contract is in active use.
@@ -80,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added — 2026-10-05
 
 - contracts/multisig, vesting, token: replace `initialize()` with
-  `__constructor` (soroban-sdk 27, E1). Constructor args are supplied once at
+  `__constructor` (soroban-sdk 27, E1, PR #40, merged 2026-10-05). Constructor args are supplied once at
   deploy time; the initialization front-running window is eliminated. New
   multisig tests: `test_constructor_empty_owners_panics`,
   `test_constructor_zero_threshold_panics`,
@@ -114,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `test_transfer_zero_amount`, `test_approve_negative_amount`,
   `test_burn_zero_amount`, `test_unauthorized_mint`.
 - contracts/multisig/src/lib.rs: `execute()` dispatches cross-contract calls
-  via `env.invoke_contract`; 4 new tests (PR #33, PR #34):
+  via `env.invoke_contract`; 5 new tests (PR #33, PR #34):
   `test_execute_real_cross_contract_call`, `test_execute_failing_target_reverts`,
   `test_execute_below_threshold_panics`, `test_execute_twice_panics_t3`,
   `test_execute_proposal_stored_fields`.
@@ -144,6 +144,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   health routes with Stellar service mocked (PR #31).
 - SECURITY.md: threat model and signing model documentation (PR #31).
 - .github/workflows/ci.yml: html-validate and eslint steps for frontend (PR #31).
+- contracts/vesting/src/lib.rs: 5 end-to-end tests using the real token
+  contract (PR #38, merged 2026-10-04):
+  `test_e2e_create_and_claim_partial_then_full`,
+  `test_e2e_cliff_gates_claim`,
+  `test_e2e_revoke_splits_correctly`,
+  `test_e2e_revoke_after_partial_claim`,
+  `test_e2e_total_supply_conservation`.
+  Each test deploys a real `TokenContract`, mints to a funder, calls
+  `create_schedule`, advances ledger time, and asserts exact balances and
+  total-supply conservation.
 
 ### Changed — 2026-10-04
 
