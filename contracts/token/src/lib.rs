@@ -297,7 +297,7 @@ impl TokenContract {
 
     fn _mint(env: &Env, to: &Address, amount: i128) {
         let bal = Self::balance_of(env, to);
-        let new_bal = bal + amount;
+        let new_bal = bal.checked_add(amount).expect("balance overflow");
         env.storage()
             .persistent()
             .set(&DataKey::Balance(to.clone()), &new_bal);
@@ -307,7 +307,8 @@ impl TokenContract {
             PERSISTENT_BUMP_LEDGERS,
         );
         let total: i128 = env.storage().instance().get(&TOTAL).unwrap_or(0);
-        env.storage().instance().set(&TOTAL, &(total + amount));
+        let new_total = total.checked_add(amount).expect("total supply overflow");
+        env.storage().instance().set(&TOTAL, &new_total);
     }
 
     fn _transfer(env: &Env, from: &Address, to: &Address, amount: i128) {
@@ -804,5 +805,48 @@ mod tests {
         token.mint(&recipient, &1_000);
 
         let _ = stranger;
+    }
+
+    // ── Overflow guards ───────────────────────────────────────────────────────
+
+    /// Minting i128::MAX into a non-zero balance overflows the per-account
+    /// balance — _mint must panic with "balance overflow".
+    #[test]
+    #[should_panic(expected = "balance overflow")]
+    fn test_mint_balance_overflow() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let recipient = Address::generate(&env);
+        // First mint puts some tokens in the account.
+        token.mint(&recipient, &1_000);
+        // Second mint overflows i128.
+        token.mint(&recipient, &i128::MAX);
+    }
+
+    /// Minting into two separate accounts where the sum exceeds i128::MAX
+    /// overflows the total supply — _mint must panic with "total supply overflow".
+    #[test]
+    #[should_panic(expected = "total supply overflow")]
+    fn test_mint_total_supply_overflow() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(
+            TokenContract,
+            (
+                admin.clone(),
+                String::from_str(&env, "T"),
+                String::from_str(&env, "T"),
+                7u32,
+                0i128,
+            ),
+        );
+        let token = TokenContractClient::new(&env, &contract_id);
+        let r1 = Address::generate(&env);
+        let r2 = Address::generate(&env);
+        // Fill total supply to i128::MAX.
+        token.mint(&r1, &i128::MAX);
+        // Minting any more overflows total supply.
+        token.mint(&r2, &1);
     }
 }

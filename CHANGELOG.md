@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-06
 
+- contracts/vesting, token: overflow guards (E4).
+  `create_schedule` now rejects schedules where `start_time + cliff_duration`
+  or `start_time + total_duration` would overflow `u64` using `checked_add`
+  with a clear panic message; without this guard either call would trap inside
+  `vested_amount()` on every `claim()` / `revoke()`, permanently locking funds.
+  `token::_mint` uses `checked_add` for both per-account balance and total
+  supply instead of wrapping arithmetic (`+`).
+  New tests: `test_create_schedule_start_plus_duration_overflow`,
+  `test_create_schedule_start_plus_cliff_overflow` (vesting);
+  `test_mint_balance_overflow`, `test_mint_total_supply_overflow` (token).
+  Counts: multisig 35, token 32, vesting 41 (108 total).
+
 - contracts/multisig, vesting, token: lower `INSTANCE/PERSISTENT_BUMP_LEDGERS`
   from 6 307 200 to 3 110 400 (E2-CHECK). The previous value exceeded the
   network's `max_entry_ttl` (3 110 400 ledgers ≈ 180 days, protocol 29,

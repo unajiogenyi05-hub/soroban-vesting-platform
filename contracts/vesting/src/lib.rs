@@ -130,6 +130,19 @@ impl VestingContract {
             panic!("cliff exceeds duration");
         }
 
+        // Reject schedules where start_time + cliff_duration or
+        // start_time + total_duration would overflow u64.  If either sum
+        // overflows, vested_amount() would trap on every call to claim() or
+        // revoke(), permanently locking the deposited funds.
+        params
+            .start_time
+            .checked_add(params.cliff_duration)
+            .expect("start_time + cliff_duration overflows u64");
+        params
+            .start_time
+            .checked_add(params.total_duration)
+            .expect("start_time + total_duration overflows u64");
+
         let tk = token::Client::new(&env, &params.token_address);
         tk.transfer(
             &params.from,
@@ -1515,6 +1528,51 @@ mod tests {
         let claimed = vesting.claim(&1u64);
         assert_eq!(claimed, 100_000);
         assert_eq!(token_client.balance(&beneficiary), 100_000);
+    }
+
+    // ── Overflow guards ───────────────────────────────────────────────────────
+
+    /// create_schedule with start_time + total_duration overflowing u64 must
+    /// panic before any funds are transferred.
+    #[test]
+    #[should_panic(expected = "start_time + total_duration overflows u64")]
+    fn test_create_schedule_start_plus_duration_overflow() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        // start_time near u64::MAX + total_duration of 1 overflows.
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: u64::MAX,
+            cliff_duration: 0,
+            total_duration: 1,
+        });
+    }
+
+    /// create_schedule with start_time + cliff_duration overflowing u64 must
+    /// panic before any funds are transferred.
+    #[test]
+    #[should_panic(expected = "start_time + cliff_duration overflows u64")]
+    fn test_create_schedule_start_plus_cliff_overflow() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        // cliff_duration > total_duration check passes (both near MAX),
+        // but start_time + cliff_duration overflows.
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: u64::MAX - 1,
+            cliff_duration: u64::MAX - 1,
+            total_duration: u64::MAX - 1,
+        });
     }
 }
 
