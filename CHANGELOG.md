@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-06
 
+- contracts/vesting/README.md, contracts/token/README.md,
+  contracts/multisig/README.md: function reference (name, arguments,
+  authorization required, panic messages), storage keys with TTL behaviour,
+  and events. Written from source only (F3).
+
 - contracts/multisig, vesting, token: remove `bump_instance()` from pure
   getters; add permissionless `extend_ttl()` (E8, PR #46, merged 2026-10-06).
   Pure read-only functions (`get_*`, `is_*`, `name`, `symbol`, `decimals`,
