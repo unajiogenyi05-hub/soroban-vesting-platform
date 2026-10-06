@@ -258,21 +258,14 @@ impl VestingContract {
         let now = env.ledger().timestamp();
         let vested = Self::vested_amount(&schedule, now);
 
-        // Pay any vested-but-unclaimed tokens to the beneficiary.
+        // Compute amounts before any state mutation.
         let unclaimed_vested = vested - schedule.claimed_amount;
-        if unclaimed_vested > 0 {
-            let tk = token::Client::new(&env, &schedule.token);
-            tk.transfer(
-                &env.current_contract_address(),
-                &schedule.beneficiary,
-                &unclaimed_vested,
-            );
-            schedule.claimed_amount += unclaimed_vested;
-        }
-
-        // Return the unvested portion to the recipient (typically treasury).
         let unvested = schedule.total_amount - vested;
 
+        // ── Effects: update state before any external calls (CEI pattern) ──
+        if unclaimed_vested > 0 {
+            schedule.claimed_amount += unclaimed_vested;
+        }
         schedule.status = ScheduleStatus::Revoked;
         env.storage()
             .persistent()
@@ -283,6 +276,18 @@ impl VestingContract {
             PERSISTENT_BUMP_LEDGERS,
         );
 
+        // ── Interactions: token transfers happen after state is finalised ──
+        // Pay any vested-but-unclaimed tokens to the beneficiary.
+        if unclaimed_vested > 0 {
+            let tk = token::Client::new(&env, &schedule.token);
+            tk.transfer(
+                &env.current_contract_address(),
+                &schedule.beneficiary,
+                &unclaimed_vested,
+            );
+        }
+
+        // Return the unvested portion to the recipient (typically treasury).
         if unvested > 0 {
             let tk = token::Client::new(&env, &schedule.token);
             tk.transfer(&env.current_contract_address(), &recipient, &unvested);
@@ -1004,6 +1009,51 @@ mod tests {
 
         vesting.revoke(&id, &admin);
         vesting.revoke(&id, &admin); // must panic
+    }
+
+    // ── E3: revoke() state is finalised before token transfers (CEI) ─────────
+    //
+    // Verifies that after revoke():
+    //  - schedule.status == Revoked
+    //  - schedule.claimed_amount reflects the vested portion paid out
+    //  - beneficiary receives exactly the vested-but-unclaimed amount
+    //  - treasury/recipient receives exactly the unvested amount
+    //  - balances sum to total_amount (conservation)
+    #[test]
+    fn test_revoke_cei_state_and_balances() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 120_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 120_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 120,
+        });
+
+        // Advance time to 40 s → 40_000 vested, 80_000 unvested.
+        env.ledger().with_mut(|l| l.timestamp = start + 40);
+
+        let unvested_returned = vesting.revoke(&id, &treasury);
+        assert_eq!(unvested_returned, 80_000);
+
+        // State must be finalised before transfers reach the token contract.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
+        assert_eq!(sched.claimed_amount, 40_000); // vested portion accounted
+
+        // Token balances must match exactly.
+        let tk = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(tk.balance(&beneficiary), 40_000); // vested-but-unclaimed paid
+        assert_eq!(tk.balance(&treasury), 80_000); // unvested returned
+                                                   // Conservation: beneficiary + treasury == total_amount
+        assert_eq!(tk.balance(&beneficiary) + tk.balance(&treasury), 120_000);
     }
 
     // ── is_paused reflects state correctly ───────────────────────────────────

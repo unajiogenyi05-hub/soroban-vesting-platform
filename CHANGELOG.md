@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-06
+
+- contracts/vesting: reorder `revoke()` to checks-effects-interactions (E3).
+  State mutation (`claimed_amount`, `status = Revoked`, persistent write + TTL
+  bump) now happens before both token transfers, matching the pattern already
+  used in `claim()`. New test: `test_revoke_cei_state_and_balances` verifies
+  final status, `claimed_amount`, beneficiary balance, and treasury balance
+  with exact values. Count: vesting 39.
+
 ### Added — 2026-10-05
 
 - contracts/multisig, vesting, token: storage TTL management (E2).
