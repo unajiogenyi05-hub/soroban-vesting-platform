@@ -87,3 +87,26 @@ For a production deployment adjust the constants to match the expected call
 frequency and risk tolerance.  A contract that is called at least once a month
 (> 518 400 ledgers at 5 s/ledger) will never approach expiry with the defaults
 above.
+
+## Read-only getters and extend_ttl()
+
+Pure getters (`get_*`, `is_*`, `name`, `symbol`, `decimals`, `total_supply`,
+`balance`, `allowance`, `admin`, `proposal_count`, `has_confirmed`,
+`is_owner`, `schedule_count`) do **not** call `bump_instance()`.  This keeps
+them as genuinely read-only calls — they carry no write footprint, so the CLI
+submits them as simulations rather than transactions, and callers pay no rent
+fee.
+
+Each contract exposes a permissionless `extend_ttl(env)` function that bumps
+the instance TTL to `INSTANCE_BUMP_LEDGERS`.  An off-chain keep-alive bot
+(or any holder of XLM) can call this once every ~150 days to prevent the
+instance from being archived.
+
+```bash
+# Example: keep-alive call via stellar CLI
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source <ANY_ACCOUNT> \
+  --network mainnet \
+  -- extend_ttl
+```

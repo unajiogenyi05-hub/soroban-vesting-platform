@@ -50,8 +50,12 @@
 //! # TTL management
 //! Instance storage holds OWNERS, THRESHOLD and PROP_COUNT.  If the instance
 //! entry is archived the whole contract becomes unusable until it is restored.
-//! Every public entry point therefore calls `bump_instance()` to extend the
-//! instance TTL.  Persistent Proposal and Confirm entries are bumped on every
+//! State-changing entry points call `bump_instance()` to keep the instance
+//! alive on every write.  Pure read-only getters (`get_proposal`,
+//! `get_owners`, `get_threshold`, `proposal_count`, `has_confirmed`,
+//! `is_owner`) do NOT extend the TTL so they remain read-only calls.
+//! Use `extend_ttl()` to keep the instance alive from off-chain keep-alive
+//! bots.  Persistent Proposal and Confirm entries are bumped on every
 //! write (submit, confirm, revoke_confirmation, execute, cancel).
 
 #![no_std]
@@ -404,7 +408,6 @@ impl MultisigContract {
     // ── Read ────────────────────────────────────────────────────────────────
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> ProposalData {
-        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Proposal(proposal_id))
@@ -412,7 +415,6 @@ impl MultisigContract {
     }
 
     pub fn get_owners(env: Env) -> Vec<Address> {
-        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&OWNERS)
@@ -420,17 +422,14 @@ impl MultisigContract {
     }
 
     pub fn get_threshold(env: Env) -> u32 {
-        Self::bump_instance(&env);
         env.storage().instance().get(&THRESHOLD).unwrap_or(0)
     }
 
     pub fn proposal_count(env: Env) -> u64 {
-        Self::bump_instance(&env);
         env.storage().instance().get(&PROP_COUNT).unwrap_or(0)
     }
 
     pub fn has_confirmed(env: Env, proposal_id: u64, owner: Address) -> bool {
-        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Confirm(proposal_id, owner))
@@ -438,13 +437,23 @@ impl MultisigContract {
     }
 
     pub fn is_owner(env: Env, address: Address) -> bool {
-        Self::bump_instance(&env);
         let owners: Vec<Address> = env
             .storage()
             .instance()
             .get(&OWNERS)
             .unwrap_or(Vec::new(&env));
         owners.iter().any(|o| o == address)
+    }
+
+    /// Extend the contract instance TTL to `INSTANCE_BUMP_LEDGERS`.
+    ///
+    /// This is a permissionless keep-alive for contracts that are only read
+    /// (pure getters do not extend the TTL themselves).  Anyone may call this
+    /// to prevent the instance from being archived.
+    pub fn extend_ttl(env: Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
@@ -701,6 +710,21 @@ mod tests {
     // ─────────────────────────────────────────────────────────────────────────
     // Constructor tests
     // ─────────────────────────────────────────────────────────────────────────
+
+    /// extend_ttl() bumps the instance TTL above INSTANCE_BUMP_THRESHOLD
+    /// without requiring any auth (permissionless keep-alive).
+    #[test]
+    fn test_extend_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        ms.extend_ttl();
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} should exceed INSTANCE_BUMP_THRESHOLD after extend_ttl()"
+        );
+    }
 
     /// Constructor with an empty owner list panics with "need at least one owner".
     #[test]

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-06
 
+- contracts/multisig, vesting, token: remove `bump_instance()` from pure
+  getters; add permissionless `extend_ttl()` (E8).
+  Pure read-only functions (`get_*`, `is_*`, `name`, `symbol`, `decimals`,
+  `total_supply`, `balance`, `allowance`, `admin`, `proposal_count`,
+  `has_confirmed`, `is_owner`, `schedule_count`) no longer carry a write
+  footprint, so the CLI submits them as simulations rather than transactions.
+  Each contract gains a permissionless `extend_ttl(env)` entry point for
+  off-chain keep-alive bots.  Existing TTL tests unchanged; new tests:
+  `test_extend_ttl` in multisig, token, and vesting (one per contract).
+  Updated docs/ttl.md with "Read-only getters and extend_ttl()" section;
+  updated README function tables.
+  Counts: multisig 36, token 33, vesting 42 (111 total).
+
 - README: "Pause semantics" section (E5). Documents which functions are
   pause-gated in vesting and token, and why `revoke()` and `transfer_admin()`
   are intentionally not pause-gated in vesting (admin must be able to recover

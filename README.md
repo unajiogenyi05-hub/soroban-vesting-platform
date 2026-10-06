@@ -192,6 +192,10 @@ create_schedule(params)
 | `approve(owner, spender, amount)` | owner | Set allowance |
 | `pause()` / `unpause()` | admin | Emergency freeze |
 | `transfer_admin(new_admin)` | admin + new_admin | Transfer admin role |
+| `extend_ttl()` | anyone | Permissionless instance keep-alive |
+| `name()` / `symbol()` / `decimals()` | — | Read-only metadata (no write footprint) |
+| `total_supply()` / `balance(account)` / `allowance(owner, spender)` | — | Read-only queries (no write footprint) |
+| `is_paused()` / `admin()` | — | Read-only state queries (no write footprint) |
 
 ### Vesting
 
@@ -203,10 +207,11 @@ create_schedule(params)
 | `revoke(schedule_id, recipient)` | admin | Return unvested tokens |
 | `pause()` / `unpause()` | admin | Emergency freeze |
 | `transfer_admin(new_admin)` | admin + new_admin | Transfer admin role |
-| `get_schedule(id)` | — | Read schedule data |
-| `get_claimable(id)` | — | How many tokens are claimable now |
-| `get_beneficiary_schedules(beneficiary)` | — | List schedule IDs for an address |
-| `schedule_count()` | — | Total number of schedules created |
+| `extend_ttl()` | anyone | Permissionless instance keep-alive |
+| `get_schedule(id)` | — | Read-only: schedule data |
+| `get_claimable(id)` | — | Read-only: claimable amount now |
+| `get_beneficiary_schedules(beneficiary)` | — | Read-only: schedule IDs for an address |
+| `schedule_count()` / `get_admin()` / `is_paused()` | — | Read-only state queries |
 
 ### Multisig
 
@@ -218,6 +223,9 @@ create_schedule(params)
 | `revoke_confirmation(owner, proposal_id)` | owner | Remove confirmation |
 | `execute(proposal_id)` | anyone | Execute if threshold met (permissionless) |
 | `cancel(caller, proposal_id)` | proposer | Cancel proposal |
+| `extend_ttl()` | anyone | Permissionless instance keep-alive |
+| `get_proposal(id)` / `get_owners()` / `get_threshold()` | — | Read-only queries |
+| `proposal_count()` / `has_confirmed(id, owner)` / `is_owner(address)` | — | Read-only queries |
 
 `ProposalAction` variants:
 

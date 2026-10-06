@@ -345,7 +345,6 @@ impl VestingContract {
     // ── Read functions ─────────────────────────────────────────────────────
 
     pub fn get_schedule(env: Env, schedule_id: u64) -> VestingSchedule {
-        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Schedule(schedule_id))
@@ -353,7 +352,6 @@ impl VestingContract {
     }
 
     pub fn get_claimable(env: Env, schedule_id: u64) -> i128 {
-        Self::bump_instance(&env);
         let schedule: VestingSchedule = env
             .storage()
             .persistent()
@@ -364,7 +362,6 @@ impl VestingContract {
     }
 
     pub fn get_beneficiary_schedules(env: Env, beneficiary: Address) -> Vec<u64> {
-        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::BeneficiarySchedules(beneficiary))
@@ -372,7 +369,6 @@ impl VestingContract {
     }
 
     pub fn get_admin(env: Env) -> Address {
-        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&ADMIN)
@@ -380,13 +376,22 @@ impl VestingContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        Self::bump_instance(&env);
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
     pub fn schedule_count(env: Env) -> u64 {
-        Self::bump_instance(&env);
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
+    }
+
+    /// Extend the contract instance TTL to `INSTANCE_BUMP_LEDGERS`.
+    ///
+    /// This is a permissionless keep-alive for contracts that are only read
+    /// (pure getters do not extend the TTL themselves).  Anyone may call this
+    /// to prevent the instance from being archived.
+    pub fn extend_ttl(env: Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
@@ -569,6 +574,21 @@ mod tests {
     }
 
     // ── basic create + claim ─────────────────────────────────────────────────
+
+    /// extend_ttl() bumps the instance TTL above INSTANCE_BUMP_THRESHOLD
+    /// without requiring any auth (permissionless keep-alive).
+    #[test]
+    fn test_extend_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.extend_ttl();
+        let ttl = env.as_contract(&vesting_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} should exceed INSTANCE_BUMP_THRESHOLD after extend_ttl()"
+        );
+    }
 
     #[test]
     fn test_create_and_claim() {

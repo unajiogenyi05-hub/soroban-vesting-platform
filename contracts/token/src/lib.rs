@@ -10,7 +10,12 @@
 //! # TTL management
 //! Instance storage holds ADMIN, PAUSED, TOTAL, NAME, SYMBOL, DECIMALS.
 //! If the instance entry is archived the whole contract becomes unusable until
-//! it is restored.  Every public entry point calls `bump_instance()`.
+//! it is restored.  State-changing entry points call `bump_instance()` to keep
+//! the instance alive on every write.  Pure read-only getters (`name`,
+//! `symbol`, `decimals`, `total_supply`, `balance`, `allowance`, `is_paused`,
+//! `admin`) do NOT extend the TTL so they remain read-only calls (no write
+//! footprint, no fee beyond the base transaction fee).  Use `extend_ttl()` to
+//! keep the instance alive from off-chain keep-alive bots.
 //! Persistent Balance and Allowance entries are bumped on every write.
 
 #![no_std]
@@ -211,7 +216,6 @@ impl TokenContract {
     // ── Metadata reads ──────────────────────────────────────────────────────
 
     pub fn name(env: Env) -> String {
-        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&NAME)
@@ -219,7 +223,6 @@ impl TokenContract {
     }
 
     pub fn symbol(env: Env) -> String {
-        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&SYMBOL_KEY)
@@ -227,22 +230,18 @@ impl TokenContract {
     }
 
     pub fn decimals(env: Env) -> u32 {
-        Self::bump_instance(&env);
         env.storage().instance().get(&DECIMALS).unwrap_or(7)
     }
 
     pub fn total_supply(env: Env) -> i128 {
-        Self::bump_instance(&env);
         env.storage().instance().get(&TOTAL).unwrap_or(0)
     }
 
     pub fn balance(env: Env, account: Address) -> i128 {
-        Self::bump_instance(&env);
         Self::balance_of(&env, &account)
     }
 
     pub fn allowance(env: Env, owner: Address, spender: Address) -> i128 {
-        Self::bump_instance(&env);
         env.storage()
             .persistent()
             .get(&DataKey::Allowance(owner, spender))
@@ -250,16 +249,25 @@ impl TokenContract {
     }
 
     pub fn is_paused(env: Env) -> bool {
-        Self::bump_instance(&env);
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
     pub fn admin(env: Env) -> Address {
-        Self::bump_instance(&env);
         env.storage()
             .instance()
             .get(&ADMIN)
             .expect("not initialized")
+    }
+
+    /// Extend the contract instance TTL to `INSTANCE_BUMP_LEDGERS`.
+    ///
+    /// This is a permissionless keep-alive for contracts that are only read
+    /// (pure getters do not extend the TTL themselves).  Anyone may call this
+    /// to prevent the instance from being archived.
+    pub fn extend_ttl(env: Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
     }
 
     // ── Internal ────────────────────────────────────────────────────────────
@@ -428,6 +436,21 @@ mod tests {
     }
 
     // ── Original baseline tests ────────────────────────────────────────────────
+
+    /// extend_ttl() bumps the instance TTL above INSTANCE_BUMP_THRESHOLD
+    /// without requiring any auth (permissionless keep-alive).
+    #[test]
+    fn test_extend_ttl() {
+        use soroban_sdk::testutils::storage::Instance as _;
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        token.extend_ttl();
+        let ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert!(
+            ttl > INSTANCE_BUMP_THRESHOLD,
+            "instance TTL {ttl} should exceed INSTANCE_BUMP_THRESHOLD after extend_ttl()"
+        );
+    }
 
     #[test]
     fn test_initial_supply() {
