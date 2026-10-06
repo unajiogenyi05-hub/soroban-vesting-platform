@@ -1941,3 +1941,115 @@ mod e2e_token_tests {
         assert_eq!(token.balance(&b1) + token.balance(&b2), 300_000);
     }
 }
+
+// ─── Property tests (proptest) ───────────────────────────────────────────────
+//
+// Tests the pure vesting math (VestingContract::vested_amount) over arbitrary
+// inputs.  No Env is needed — the function is a pure calculation.
+//
+// Properties verified:
+//   P1. vested never decreases as time advances
+//   P2. vested never exceeds total_amount
+//   P3. vested is 0 before the cliff
+//   P4. vested equals total_amount at or after the end
+//
+// Run with:  cargo test --package vesting prop_
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::Env;
+
+    /// Build a dummy schedule for pure-math tests (no Env interaction needed).
+    fn dummy(
+        total_amount: i128,
+        start_time: u64,
+        cliff_duration: u64,
+        total_duration: u64,
+    ) -> VestingSchedule {
+        let env = Env::default();
+        VestingSchedule {
+            id: 1,
+            beneficiary: soroban_sdk::Address::generate(&env),
+            token: soroban_sdk::Address::generate(&env),
+            total_amount,
+            claimed_amount: 0,
+            start_time,
+            cliff_duration,
+            total_duration,
+            status: ScheduleStatus::Active,
+        }
+    }
+
+    proptest! {
+        /// P1 & P2: vested(t) is non-decreasing and never exceeds total_amount.
+        #[test]
+        fn prop_vested_never_decreases_and_never_exceeds_total(
+            total_amount in 1i128..=i64::MAX as i128,
+            start_time   in 0u64..=u32::MAX as u64,
+            // keep total_duration > 0; cliff <= total_duration
+            total_duration in 1u64..=100_000u64,
+            cliff_ratio    in 0u64..=100u64,   // cliff = cliff_ratio% of total_duration
+            t1             in 0u64..=200_000u64,
+            t2             in 0u64..=200_000u64,
+        ) {
+            let cliff_duration = (cliff_ratio * total_duration) / 100;
+            // Guard against overflow in start_time + total_duration
+            prop_assume!(start_time.checked_add(total_duration).is_some());
+            prop_assume!(start_time.checked_add(cliff_duration).is_some());
+
+            let sched = dummy(total_amount, start_time, cliff_duration, total_duration);
+            let (lo, hi) = if t1 <= t2 { (t1, t2) } else { (t2, t1) };
+
+            let v_lo = VestingContract::vested_amount(&sched, lo);
+            let v_hi = VestingContract::vested_amount(&sched, hi);
+
+            // P1: non-decreasing
+            prop_assert!(v_hi >= v_lo, "vested decreased: v({})={} > v({})={}", lo, v_lo, hi, v_hi);
+            // P2: never exceeds total
+            prop_assert!(v_lo <= total_amount, "vested({})={} > total={}", lo, v_lo, total_amount);
+            prop_assert!(v_hi <= total_amount, "vested({})={} > total={}", hi, v_hi, total_amount);
+        }
+
+        /// P3: vested is 0 strictly before the cliff.
+        #[test]
+        fn prop_zero_before_cliff(
+            total_amount   in 1i128..=i64::MAX as i128,
+            start_time     in 0u64..=100_000u64,
+            cliff_duration in 1u64..=100_000u64,
+            // t is strictly before start_time + cliff_duration
+            t_offset       in 0u64..=999_999u64,
+        ) {
+            let total_duration = cliff_duration + 1; // always > cliff
+            prop_assume!(start_time.checked_add(total_duration).is_some());
+            prop_assume!(start_time.checked_add(cliff_duration).is_some());
+
+            let cliff_end = start_time + cliff_duration;
+            // t must be strictly before cliff_end
+            let t = t_offset % cliff_end.max(1);
+
+            let sched = dummy(total_amount, start_time, cliff_duration, total_duration);
+            let v = VestingContract::vested_amount(&sched, t);
+            prop_assert_eq!(v, 0, "expected 0 before cliff at t={}, cliff_end={}", t, cliff_end);
+        }
+
+        /// P4: vested equals total_amount at or after end.
+        #[test]
+        fn prop_equals_total_at_end(
+            total_amount   in 1i128..=i64::MAX as i128,
+            start_time     in 0u64..=100_000u64,
+            total_duration in 1u64..=100_000u64,
+            extra          in 0u64..=100_000u64,
+        ) {
+            prop_assume!(start_time.checked_add(total_duration).is_some());
+            let end = start_time + total_duration;
+            let t = end.saturating_add(extra);
+
+            let sched = dummy(total_amount, start_time, 0, total_duration);
+            let v = VestingContract::vested_amount(&sched, t);
+            prop_assert_eq!(v, total_amount, "expected total={} at t={} (end={})", total_amount, t, end);
+        }
+    }
+}
