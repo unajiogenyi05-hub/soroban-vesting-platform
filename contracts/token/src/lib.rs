@@ -31,12 +31,16 @@ const DECIMALS: Symbol = symbol_short!("DECIMALS");
 
 // ─── TTL constants ────────────────────────────────────────────────────────────
 
-/// Extend instance and persistent storage to ~1 year (ledgers of ~5 s each).
-pub const INSTANCE_BUMP_LEDGERS: u32 = 6_307_200;
+/// Extend instance and persistent storage to ~180 days (ledgers of ~5 s each).
+/// This equals the network's `max_entry_ttl` (3 110 400 ledgers on both
+/// testnet and mainnet as of protocol 29, per stellar-core soroban-settings).
+/// Values above `max_entry_ttl` are silently clamped by the host, so using
+/// the exact maximum is both correct and maximally protective against archival.
+pub const INSTANCE_BUMP_LEDGERS: u32 = 3_110_400;
 /// Only extend when the remaining TTL drops below ~30 days.
 pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
 /// Persistent entries use the same window.
-pub const PERSISTENT_BUMP_LEDGERS: u32 = 6_307_200;
+pub const PERSISTENT_BUMP_LEDGERS: u32 = 3_110_400;
 pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
 
 #[contracttype]
