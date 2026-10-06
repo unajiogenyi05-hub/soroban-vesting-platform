@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — 2026-10-06
+
+- CHANGELOG.md: added missing PR #37 reference to the five e2e vesting tests
+  entry; removed one meta-doc bullet that described an earlier documentation
+  correction (PR #36 entry in Fixed — 2026-10-04).
+
 ### Added — 2026-10-06
 
 - contracts/multisig, vesting, token: remove `bump_instance()` from pure
@@ -143,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SECURITY.md: threat model and signing model documentation (PR #31).
 - .github/workflows/ci.yml: html-validate and eslint steps for frontend (PR #31).
 - contracts/vesting/src/lib.rs: 5 end-to-end tests using the real token
-  contract (PR #38, merged 2026-10-04):
+  contract (PR #37, PR #38, merged 2026-10-04):
   `test_e2e_create_and_claim_partial_then_full`,
   `test_e2e_cliff_gates_claim`,
   `test_e2e_revoke_splits_correctly`,
@@ -178,8 +184,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - contracts/multisig/src/lib.rs: test name `test_outsider_cannot_add_owner`
   renamed to `test_add_owner_requires_threshold`; contradictory comment fixed
   (PR #36).
-- CHANGELOG.md: removed meta-doc entry that documented an earlier documentation
-  change (PR #36).
 
 ### Removed — 2026-10-04
 
