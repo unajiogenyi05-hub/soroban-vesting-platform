@@ -106,7 +106,7 @@ soroban-vesting-platform/
 | Tool | Install |
 |------|---------|
 | Rust stable + wasm32v1-none | `rustup target add wasm32v1-none` |
-| stellar-cli | `curl -sSfL https://install.stellar.org \| sh` |
+| stellar-cli | `curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh \| sh` (or `cargo binstall -y stellar-cli`) |
 | Node.js ≥ 18 | [nodejs.org](https://nodejs.org) |
 | jq (for demo scripts) | `apt install jq` / `brew install jq` |
 
@@ -119,26 +119,78 @@ soroban-vesting-platform/
 git clone https://github.com/unajiogenyi05-hub/soroban-vesting-platform
 cd soroban-vesting-platform
 
-# 2. Configure
-cp .env.example .env
-# Edit .env — set SOURCE_SECRET_KEY and contract IDs after deployment
+# 2. Build contracts (outputs to target/wasm32v1-none/release/)
+stellar contract build
 
-# 3. Build contracts
-make build
+# 3. Run tests
+cargo test --all
 
-# 4. Run tests
-make test
-
-# 5. Deploy to testnet
-make deploy-testnet
-
-# 6. Or run the end-to-end testnet demo
+# 4. Deploy to testnet — follow "Deploy to Testnet" below,
+#    or run the end-to-end demo:
 chmod +x scripts/demo-testnet.sh
 ./scripts/demo-testnet.sh
 
-# 7. Start backend API
+# 5. Start backend API
 cd backend && npm install && npm start
 ```
+
+> **Note:** `make deploy-testnet` and `scripts/deploy.sh` are out of date
+> (old build target, no constructor arguments). Use the `stellar contract`
+> commands below or `docs/testnet-demo.md` instead.
+
+---
+
+## Deploy to Testnet
+
+Works in a fresh GitHub Codespace. Constructor arguments are passed at deploy
+time (there is no separate `initialize` call).
+
+```bash
+# Setup (once)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+rustup target add wasm32v1-none
+curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh | sh
+stellar --version
+
+# Build
+stellar contract build
+
+# Create and fund a Testnet account (secret key stays in your Stellar CLI config — never commit it)
+stellar keys generate my-admin --network testnet --fund
+export ADMIN=$(stellar keys address my-admin)
+
+# Deploy token
+export TOKEN_ID=$(stellar contract deploy \
+  --wasm target/wasm32v1-none/release/token.wasm \
+  --source my-admin --network testnet \
+  -- --admin "$ADMIN" --name '"My Token"' --symbol '"MTK"' --decimals 7 --initial_supply 0)
+
+# Deploy vesting
+export VESTING_ID=$(stellar contract deploy \
+  --wasm target/wasm32v1-none/release/vesting.wasm \
+  --source my-admin --network testnet \
+  -- --admin "$ADMIN")
+```
+
+Optional multisig (single owner, threshold 1, for testing):
+
+```bash
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/multisig.wasm \
+  --source my-admin --network testnet \
+  -- --owners "[\"$ADMIN\"]" --threshold 1
+```
+
+### Current Testnet deployment
+
+| Contract | ID | Explorer |
+|----------|----|----------|
+| Token | `CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH` | [Stellar Expert](https://stellar.expert/explorer/testnet/contract/CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH) |
+| Vesting | `CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF` | [Stellar Expert](https://stellar.expert/explorer/testnet/contract/CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF) |
+
+The same IDs are recorded in [`deployments.json`](deployments.json). These are
+Testnet-only contracts with no real value.
 
 ---
 
@@ -335,7 +387,8 @@ stellar contract build
 ## Backend API — live data note
 
 The backend routes are pre-wired. For live on-chain data, set these in `.env`
-after deploying the contracts:
+after deploying the contracts (Testnet IDs are listed in
+[Deploy to Testnet](#deploy-to-testnet) above):
 
 ```
 VESTING_CONTRACT_ID=<deployed vesting contract ID>
@@ -357,7 +410,7 @@ can be developed independently of a live deployment.
 | Backend API | Returns documented stubs for all mutating operations until contract IDs and a signing setup are configured. Does not hold private keys. |
 | Frontend | Calls the backend API. No wallet (Freighter) integration. |
 | proptest | Not used. Property-based tests are manual parameterised tables. |
-| Testnet deployment | No contract IDs exist in this repo. Run `scripts/demo-testnet.sh` to deploy your own. |
+| Testnet deployment | Token and vesting contracts are deployed on Testnet (see [Deploy to Testnet](#deploy-to-testnet)). Multisig is not deployed. Run the steps above or `scripts/demo-testnet.sh` to deploy your own. |
 | Multisig execute | `execute()` dispatches the proposal action. `ProposalAction::Call` makes a real cross-contract call via `env.invoke_contract`. Owner management actions (`AddOwner`, `RemoveOwner`, `UpdateThreshold`) are handled internally — no public entry points exist for them. |
 | Mainnet | Not recommended. No audit, no mainnet deployment. |
 
