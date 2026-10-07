@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-07
+
+- Testnet deployment: token contract `CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH` and
+  vesting contract `CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF` deployed to Stellar Testnet
+  using the `stellar contract deploy` CLI with constructor arguments passed at
+  deploy time. The multisig contract is not deployed.
+
+- deployments.json: records the Testnet contract IDs
+  (`token_testnet`, `vesting_testnet`) in the format `scripts/deploy.sh`
+  writes.
+
+- README: "Deploy to Testnet" section with Codespaces-friendly setup (Rust,
+  `wasm32v1-none` target, stellar-cli), build, account funding, token and
+  vesting deploy commands, optional multisig deploy, and a table of the
+  current Testnet contract IDs with Stellar Expert links. Added a "Deployed on
+  Testnet" contract ID table near the top of the README.
+
+### Changed — 2026-10-07
+
+- README: description changed from "testnet-ready" to "deployed on Testnet".
+  Prerequisites now install stellar-cli from the GitHub install script
+  (`install.stellar.org` did not resolve from the Codespace). Quick start now
+  uses `stellar contract build` and `cargo test --all`, and no longer lists
+  `make deploy-testnet`. "Status and limitations" Testnet row updated to
+  reflect the deployed token and vesting contracts. Backend section links to
+  the deployment IDs.
+
+- README: added a note that `make deploy-testnet` and `scripts/deploy.sh` are
+  out of date (they build for `wasm32-unknown-unknown` and deploy without
+  constructor arguments); the scripts themselves are unchanged.
+
 ### Fixed — 2026-10-06
 
 - CHANGELOG.md: added missing PR #37 reference to the five e2e vesting tests
