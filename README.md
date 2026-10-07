@@ -1,11 +1,21 @@
 # Soroban Vesting Platform
 
-A reference implementation, unaudited, testnet-ready token vesting platform
-built on the [Stellar](https://stellar.org) network using
+A reference implementation, unaudited, token vesting platform deployed on
+Testnet, built on the [Stellar](https://stellar.org) network using
 [Soroban](https://soroban.stellar.org) smart contracts.
 
 [![CI](https://github.com/unajiogenyi05-hub/soroban-vesting-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/unajiogenyi05-hub/soroban-vesting-platform/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+**Deployed on Testnet**
+
+| Contract | ID |
+|----------|----|
+| Token | [`CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH`](https://stellar.expert/explorer/testnet/contract/CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH) |
+| Vesting | [`CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF`](https://stellar.expert/explorer/testnet/contract/CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF) |
+
+Testnet only, no real value. See [Deploy to Testnet](#deploy-to-testnet) and
+[`deployments.json`](deployments.json).
 
 ---
 
