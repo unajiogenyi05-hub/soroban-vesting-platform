@@ -1011,6 +1011,72 @@ mod tests {
         assert_eq!(token_client.balance(&admin), 75_000);
     }
 
+    // ── revoke after full claim: no beneficiary transfer when unclaimed==0 ──
+
+    /// When the beneficiary has already claimed all vested tokens before
+    /// revoke() is called, `unclaimed_vested == 0` and the guarded beneficiary
+    /// transfer must be skipped.  The beneficiary balance must stay at the
+    /// prior claim amount (no double payment), the treasury must receive
+    /// exactly the unvested amount, and the vesting contract must hold 0.
+    #[test]
+    fn test_revoke_after_full_claim_no_beneficiary_transfer() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance to 50% vested and claim all 50_000.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(vesting.get_claimable(&id), 50_000);
+        let claimed = vesting.claim(&id);
+        assert_eq!(claimed, 50_000);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(token_client.balance(&beneficiary), 50_000);
+
+        // Revoke immediately after the claim: unclaimed_vested == 0.
+        let returned = vesting.revoke(&id, &treasury);
+        assert_eq!(returned, 50_000, "unvested amount must be returned");
+
+        // Beneficiary balance must remain at the prior claim amount — no
+        // additional (zero-amount or otherwise) transfer occurred.
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            50_000,
+            "beneficiary must not receive a second payment on revoke"
+        );
+
+        // Treasury receives exactly the unvested amount.
+        assert_eq!(
+            token_client.balance(&treasury),
+            50_000,
+            "treasury must receive exactly the unvested amount"
+        );
+
+        // Vesting contract holds nothing after revoke.
+        assert_eq!(
+            token_client.balance(&vesting_id),
+            0,
+            "vesting contract must hold 0 after revoke"
+        );
+
+        // Schedule is Revoked and claimed_amount reflects the full vested portion.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
+        assert_eq!(sched.claimed_amount, 50_000);
+    }
+
     // ── revoke returns unvested tokens (original test variant) ───────────────
 
     #[test]

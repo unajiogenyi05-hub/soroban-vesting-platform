@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests — 2026-10-17
+
+- contracts/vesting/src/lib.rs: `test_revoke_after_full_claim_no_beneficiary_transfer`
+  (#131). Covers the previously untested zero branch of `revoke()`'s
+  `if unclaimed_vested > 0` guard. Creates a 100-unit schedule, advances to
+  50% vested, claims all 50, then revokes immediately. Asserts the returned
+  unvested amount is 50, the beneficiary balance stays at 50 (no duplicate
+  payment), the treasury receives exactly 50, and the vesting contract holds
+  0. Complements the existing `test_revoke_pays_vested_to_beneficiary`
+  (non-zero path) and `test_e2e_revoke_after_partial_claim`. No contract
+  behaviour changed; the test verifies the CEI ordering assumption that a
+  fully-claimed beneficiary is not paid twice on revoke.
+
 
 ### Changed — 2026-10-17
 
