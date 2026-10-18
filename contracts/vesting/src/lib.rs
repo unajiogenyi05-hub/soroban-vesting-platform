@@ -1310,6 +1310,67 @@ mod tests {
         assert_eq!(vesting.get_admin(), new_admin);
     }
 
+    /// After transfer_admin, only the old admin's auth is not enough:
+    /// create_schedule must panic.
+    #[test]
+    #[should_panic]
+    fn test_vesting_transfer_admin_revokes_old_admin() {
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        use soroban_sdk::IntoVal;
+
+        let (env, vesting_id, old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+        vesting.transfer_admin(&new_admin);
+
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        // Only the old admin authorizes the call; require_admin() now checks new_admin.
+        env.mock_auths(&[MockAuth {
+            address: &old_admin,
+            invoke: &MockAuthInvoke {
+                contract: &vesting_id,
+                fn_name: "create_schedule",
+                args: (params.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        vesting.create_schedule(&params); // must panic: new_admin auth missing
+    }
+
+    /// After transfer_admin, the new admin can create schedules.
+    #[test]
+    fn test_vesting_transfer_admin_new_admin_can_create_schedule() {
+        let (env, vesting_id, _old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+        vesting.transfer_admin(&new_admin);
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        assert_eq!(vesting.get_admin(), new_admin);
+        assert_eq!(vesting.schedule_count(), 1);
+        assert_eq!(id, 1);
+    }
+
     // ── schedule_count increments ────────────────────────────────────────────
 
     #[test]
