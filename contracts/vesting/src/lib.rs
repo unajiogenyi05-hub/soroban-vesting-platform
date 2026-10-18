@@ -3054,6 +3054,81 @@ mod e2e_token_tests {
         assert_eq!(token.total_supply(), 100_000);
     }
 
+    /// The multisig (2-of-3) is the vesting admin.  A `ProposalAction::Call`
+    /// targeting `vesting.revoke(schedule_id, treasury)` is submitted,
+    /// confirmed by two owners and executed.  At t=50 the beneficiary gets the
+    /// vested half and the treasury gets the unvested half.
+    #[test]
+    fn test_multisig_revoke_via_proposal() {
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
+        use soroban_sdk::{IntoVal, Val};
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
+
+        let (token_addr, token) = deploy_token(&env, &funder, 100_000);
+        let (vesting_id, vesting) = deploy_vesting(&env, &ms_id);
+
+        let start = env.ledger().timestamp();
+
+        // Create the schedule directly (funder authorises the token pull).
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        assert_eq!(token.balance(&vesting_id), 100_000);
+
+        // 50% vested
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+
+        let mut args: soroban_sdk::Vec<Val> = soroban_sdk::Vec::new(&env);
+        args.push_back(id.into_val(&env));
+        args.push_back(treasury.into_val(&env));
+
+        let pid = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::Symbol::new(&env, "revoke"),
+                args,
+            }),
+            &soroban_sdk::String::from_str(&env, "revoke schedule via multisig"),
+        );
+
+        ms.confirm(&o1, &pid);
+        ms.confirm(&o2, &pid);
+        ms.execute(&pid);
+
+        assert_eq!(
+            ms.get_proposal(&pid).status,
+            multisig::ProposalStatus::Executed
+        );
+        assert_eq!(vesting.get_schedule(&id).status, ScheduleStatus::Revoked);
+        assert_eq!(token.balance(&beneficiary), 50_000);
+        assert_eq!(token.balance(&treasury), 50_000);
+        assert_eq!(token.balance(&vesting_id), 0);
+        assert_eq!(token.total_supply(), 100_000);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // C-5: total supply conservation across multiple schedules
     // ─────────────────────────────────────────────────────────────────────────
