@@ -594,7 +594,7 @@ impl TokenContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Events};
+    use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
     use soroban_sdk::{vec, Env, IntoVal};
 
     fn deploy() -> (Env, Address, Address) {
@@ -913,6 +913,68 @@ mod tests {
 
         // The new admin is now in storage.
         assert_eq!(token.admin(), new_admin);
+    }
+
+    #[test]
+    fn test_token_transfer_admin_revokes_old_admin() {
+        let (env, contract_id, admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let new_admin = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        env.set_auths(&[]);
+        env.mock_auths(&[
+            MockAuth {
+                address: &admin,
+                invoke: &MockAuthInvoke {
+                    contract: &contract_id,
+                    fn_name: "transfer_admin",
+                    args: (&new_admin,).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+            MockAuth {
+                address: &new_admin,
+                invoke: &MockAuthInvoke {
+                    contract: &contract_id,
+                    fn_name: "transfer_admin",
+                    args: (&new_admin,).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+        ]);
+        token.transfer_admin(&new_admin);
+        assert_eq!(token.admin(), new_admin);
+
+        env.mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "mint",
+                args: (&recipient, 100i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        assert_eq!(
+            token.try_mint(&recipient, &100),
+            Err(Ok(soroban_sdk::Error::from_type_and_code(
+                soroban_sdk::xdr::ScErrorType::Context,
+                soroban_sdk::xdr::ScErrorCode::InvalidAction,
+            )))
+        );
+        assert_eq!(token.balance(&recipient), 0);
+
+        env.mock_auths(&[MockAuth {
+            address: &new_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "mint",
+                args: (&recipient, 100i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        token.mint(&recipient, &100);
+        assert_eq!(token.balance(&recipient), 100);
     }
 
     // ── Allowance edge cases ──────────────────────────────────────────────────
