@@ -184,6 +184,13 @@ extend TTL.
 
 ---
 
+### `get_confirmations(env, proposal_id: u64) -> Vec<Address>`
+
+Returns the owners who have confirmed `proposal_id`, in owner-list order.
+Empty when there are no confirmations. Read-only; does not extend TTL.
+
+---
+
 ### `is_owner(env, address: Address) -> bool`
 
 Returns `true` if `address` is in the current owner set. Read-only; does not

@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added — 2026-10-21
+
+- multisig: `get_confirmations(proposal_id) -> Vec<Address>` read-only view
+  returning the owners who have confirmed a proposal (#104).
+
 ### Fixed — 2026-10-21
 
 - Makefile: `setup` target now installs `wasm32v1-none` instead of the

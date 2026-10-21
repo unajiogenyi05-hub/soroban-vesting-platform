@@ -53,7 +53,7 @@
 //! State-changing entry points call `bump_instance()` to keep the instance
 //! alive on every write.  Pure read-only getters (`get_proposal`,
 //! `get_owners`, `get_threshold`, `proposal_count`, `has_confirmed`,
-//! `is_owner`) do NOT extend the TTL so they remain read-only calls.
+//! `get_confirmations`, `is_owner`) do NOT extend the TTL so they remain read-only calls.
 //! Use `extend_ttl()` to keep the instance alive from off-chain keep-alive
 //! bots.  Persistent Proposal and Confirm entries are bumped on every
 //! write (submit, confirm, revoke_confirmation, execute, cancel).
@@ -505,6 +505,32 @@ impl MultisigContract {
             .persistent()
             .get(&DataKey::Confirm(proposal_id, owner))
             .unwrap_or(false)
+    }
+
+    /// Return the owners who have confirmed the proposal `proposal_id`.
+    ///
+    /// Addresses are returned in owner-list order. The result is empty when
+    /// nobody has confirmed (or the proposal does not exist). Read-only —
+    /// does not extend TTL or write any storage.
+    pub fn get_confirmations(env: Env, proposal_id: u64) -> Vec<Address> {
+        let owners: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&OWNERS)
+            .unwrap_or(Vec::new(&env));
+        let mut result = Vec::new(&env);
+        for owner in owners.iter() {
+            let key = DataKey::Confirm(proposal_id, owner.clone());
+            if env
+                .storage()
+                .persistent()
+                .get::<DataKey, bool>(&key)
+                .unwrap_or(false)
+            {
+                result.push_back(owner);
+            }
+        }
+        result
     }
 
     /// Return `true` if `address` is currently in the owner set, `false`
@@ -1113,6 +1139,31 @@ mod tests {
         assert!(!ms.is_owner(&o3));
         assert_eq!(ms.get_proposal(&pending_id).confirmation_count, 0);
         assert!(!ms.has_confirmed(&pending_id, &o3));
+    }
+
+    #[test]
+    fn test_get_confirmations() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "confirmations"),
+        );
+        assert_eq!(ms.get_confirmations(&id).len(), 0);
+
+        ms.confirm(&o1, &id);
+        let one = ms.get_confirmations(&id);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one.get(0).unwrap(), o1);
+
+        ms.confirm(&o2, &id);
+        let two = ms.get_confirmations(&id);
+        assert_eq!(two.len(), 2);
+        assert_eq!(two.get(0).unwrap(), o1);
+        assert_eq!(two.get(1).unwrap(), o2);
     }
 
     #[test]

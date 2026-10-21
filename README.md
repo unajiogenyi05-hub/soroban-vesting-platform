@@ -306,7 +306,7 @@ create_schedule(params)
 | `cancel(caller, proposal_id)` | proposer | Cancel proposal |
 | `extend_ttl()` | anyone | Permissionless instance keep-alive |
 | `get_proposal(id)` / `get_owners()` / `get_threshold()` | — | Read-only queries |
-| `proposal_count()` / `has_confirmed(id, owner)` / `is_owner(address)` | — | Read-only queries |
+| `proposal_count()` / `has_confirmed(id, owner)` / `get_confirmations(id)` / `is_owner(address)` | — | Read-only queries |
 
 `ProposalAction` variants:
 
