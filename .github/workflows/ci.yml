@@ -43,6 +43,11 @@ jobs:
       - name: Tests
         run: cargo test --all --locked
 
+      - name: Security audit
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install stellar-cli
         uses: stellar/stellar-cli@v28.0.0
 
