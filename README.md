@@ -395,6 +395,25 @@ procedure, and how to tune the constants for a production deployment.
 
 ---
 
+## Releases
+
+Push a semantic-version tag to build every contract and publish a GitHub
+Release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release workflow runs the formatting, clippy, and test gates, builds with
+`stellar contract build`, verifies that exactly three WASM artifacts exist, and
+attaches `token.wasm`, `vesting.wasm`, `multisig.wasm`, and `sha256sums.txt` to
+the release. Downloaders can verify a build with:
+
+```bash
+sha256sum -c sha256sums.txt
+```
+
 ## Development
 
 ```bash

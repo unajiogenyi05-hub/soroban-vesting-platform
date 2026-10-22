@@ -1156,11 +1156,11 @@ mod tests {
 
     // ── Constructor guards ────────────────────────────────────────────────────
 
-    /// The constructor must panic with "decimals too large" when `decimals`
-    /// exceeds 18.  Registering the contract with `decimals = 19` exercises
-    /// the guard on line ~84 of lib.rs.
+    /// The constructor must reject `decimals` above 18 with
+    /// `TokenError::DecimalsTooLarge` (contract error code 1). Registering the
+    /// contract with `decimals = 19` exercises the guard on line ~84 of lib.rs.
     #[test]
-    #[should_panic(expected = "decimals too large")]
+    #[should_panic(expected = "Error(Contract, #1)")]
     fn test_constructor_rejects_decimals_too_large() {
         let env = Env::default();
         env.mock_all_auths();
