@@ -533,6 +533,29 @@ impl MultisigContract {
         result
     }
 
+    /// Return the IDs of all proposals whose status is `Pending`.
+    ///
+    /// Scans every proposal from `1` to `proposal_count()` and collects the
+    /// IDs of those still pending. This is an **O(n)** scan over all proposals
+    /// ever submitted — intended for the expected governance scale, not for
+    /// unbounded proposal histories.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn get_pending_proposals(env: Env) -> Vec<u64> {
+        let count: u64 = env.storage().instance().get(&PROP_COUNT).unwrap_or(0);
+        let mut result = Vec::new(&env);
+        for id in 1..=count {
+            let maybe: Option<ProposalData> =
+                env.storage().persistent().get(&DataKey::Proposal(id));
+            if let Some(p) = maybe {
+                if p.status == ProposalStatus::Pending {
+                    result.push_back(id);
+                }
+            }
+        }
+        result
+    }
+
     /// Return `true` if `address` is currently in the owner set, `false`
     /// otherwise.
     ///
@@ -1706,5 +1729,101 @@ mod tests {
             3u64,
             "proposal_count should be 3 after third submit"
         );
+    }
+
+    // ── get_pending_proposals ────────────────────────────────────────────────
+
+    /// With no proposals submitted, get_pending_proposals returns an empty list.
+    #[test]
+    fn test_get_pending_proposals_empty() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let pending = ms.get_pending_proposals();
+        assert_eq!(pending.len(), 0, "no proposals means empty pending list");
+    }
+
+    /// get_pending_proposals returns the IDs of all pending proposals and
+    /// excludes executed and cancelled ones.
+    #[test]
+    fn test_get_pending_proposals_after_submits_and_executes() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        // id 1 — will be executed.
+        let id1 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "executed proposal"),
+        );
+        // id 2 — will remain pending.
+        let id2 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "pending proposal"),
+        );
+        // id 3 — will be cancelled.
+        let id3 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "cancelled proposal"),
+        );
+        // id 4 — will remain pending.
+        let id4 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "another pending proposal"),
+        );
+
+        // Execute id1.
+        ms.confirm(&o1, &id1);
+        ms.confirm(&o2, &id1);
+        ms.execute(&id1);
+
+        // Cancel id3.
+        ms.cancel(&o1, &id3);
+
+        let pending = ms.get_pending_proposals();
+        assert_eq!(pending.len(), 2, "only id2 and id4 should be pending");
+        assert_eq!(pending.get(0).unwrap(), id2);
+        assert_eq!(pending.get(1).unwrap(), id4);
+    }
+
+    /// get_pending_proposals excludes a proposal that has been executed even
+    /// when it was the only proposal.
+    #[test]
+    fn test_get_pending_proposals_excludes_executed() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "only proposal"),
+        );
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+
+        assert_eq!(ms.get_pending_proposals().len(), 0);
+    }
+
+    /// get_pending_proposals excludes a cancelled proposal.
+    #[test]
+    fn test_get_pending_proposals_excludes_cancelled() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "cancelled proposal"),
+        );
+        ms.cancel(&o1, &id);
+
+        assert_eq!(ms.get_pending_proposals().len(), 0);
     }
 }

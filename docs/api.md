@@ -39,12 +39,8 @@ If none is available the request fails with:
 
 ### Success responses
 
-- **Read endpoints (`GET`)** return HTTP `200` with
-  `{ "success": true, "data": { ... } }`.
-- **Mutating endpoints (`POST`)** return HTTP `202` with
-  `{ "success": true, "message": "...", "data": { ... } }`. The backend does
-  not submit transactions; the 202 means the transaction is ready for the
-  caller to sign and submit.
+- `GET` returns HTTP `200` with `{ "success": true, "data": { ... } }`.
+- `POST` returns HTTP `202` with `{ "success": true, "message": "...", "data": { ... } }`. The backend does not submit transactions; the 202 means the transaction is ready for the caller to sign and submit.
 
 ### Error responses
 
@@ -56,20 +52,20 @@ If none is available the request fails with:
 | `500` | `{ "error": "<message>", "code": "INTERNAL_ERROR" }` | Central error handler |
 
 Unhandled handler errors always produce `{ "error", "code" }` (`code` is
-`INTERNAL_ERROR` for 500s, `REQUEST_ERROR` otherwise).
+`"INTERNAL_ERROR"` for 500s, `"REQUEST_ERROR"` otherwise).
 
 ### Address validation
 
 Address fields are validated with `validateStellarAddress()` (56-character
-`G...` ed25519 public keys). An invalid value returns HTTP 400 with
+`G` ed25519 public keys). An invalid value returns HTTP 400 with
 `{ "error": "invalid Stellar address: <field>" }`.
 
 ### Stub data
 
 Unless the contract ID and signing environment variables are configured (see
-[README — Backend API](../README.md#backend-api--live-data-note)), responses
+[README — Backend API — Live data note](../README.md#backend-api--live-data-note)), responses
 contain documented stub values (e.g. `count: 0`, `claimableAmount: 0`) and a
-`note` field telling you which environment variable to set.
+`.note` field telling you which environment variable to set.
 
 ---
 
@@ -85,7 +81,7 @@ Liveness check. Requires no contract ID.
 |-------|------|-------------|
 | `status` | string | Always `"ok"` |
 | `timestamp` | string | ISO-8601 timestamp |
-| `network` | string | `process.env.STELLAR_NETWORK` or `"testnet"` |
+| `network` | string | `process.env.STELLAR_NETWORKP or `"testnet"` |
 | `rpc` | string | Soroban RPC URL in use |
 
 **Example**
@@ -291,7 +287,7 @@ Pause the vesting contract (admin). No body fields beyond `contractId`.
 
 Unpause the vesting contract (admin). No body fields beyond `contractId`.
 
-**Success `202`**
+**Success `200`**
 
 ```json
 { "success": true, "message": "Unpause transaction ready." }
@@ -402,7 +398,7 @@ Note: `balance` is a **string** in live mode (bigint serialization) and a
 **number** in stub mode.
 
 **Errors:** `400` `invalid Stellar address: addr` (live mode only);
-`400` `contractId is required`; `500` if the RPC simulation fails.
+`400` `contractId is required`; `500` eif the RPC simulation fails.
 
 ### `GET /api/token/allowance`
 
@@ -484,7 +480,7 @@ Burn tokens.
 
 ### `POST /api/token/transfer`
 
-Transfer tokens.
+Transfer tokens between accounts.
 
 **Request body**
 
@@ -493,7 +489,7 @@ Transfer tokens.
 | `contractId` | string | see [Contract ID](#contract-id) |
 | `from` | string (valid Stellar address) | yes |
 | `to` | string (valid Stellar address) | yes |
-| `amount` | number | yes |
+| `amount` | number, `> 0` | yes |
 
 **Success `202`**
 
@@ -501,66 +497,67 @@ Transfer tokens.
 {
   "success": true,
   "message": "Transfer transaction ready.",
-  "data": { "from": "G...", "to": "G...", "amount": 100, "contractId": "C..." }
+  "data": { "from": "G...", "to": "G...", "amount": 500, "contractId": "C..." }
 }
 ```
 
 **Errors:** `400` `from, to and amount required`;
-`400` `invalid Stellar address: from` / `to`.
-
-### `POST /api/token/approve`
-
-Approve a spender allowance.
-
-**Request body**
-
-| Field | Type | Required |
-|-------|------|----------|
-| `contractId` | string | see [Contract ID](#contract-id) |
-| `owner` | string (valid Stellar address) | yes |
-| `spender` | string (valid Stellar address) | yes |
-| `amount` | number | yes — must be present; `0` is allowed (`amount === undefined` is the only failure) |
-
-**Success `202`**
-
-```json
-{
-  "success": true,
-  "message": "Approve transaction ready.",
-  "data": { "owner": "G...", "spender": "G...", "amount": 0, "contractId": "C..." }
-}
-```
-
-**Errors:** `400` `owner, spender and amount required`;
-`400` `invalid Stellar address: owner` / `spender`.
-
-### `POST /api/token/pause`
-
-Pause the token (admin). No body fields beyond `contractId`.
-
-**Success `202`**
-
-```json
-{ "success": true, "message": "Pause transaction ready." }
-```
-
-### `POST /api/token/unpause`
-
-Unpause the token (admin). No body fields beyond `contractId`.
-
-**Success `202`**
-
-```json
-{ "success": true, "message": "Unpause transaction ready." }
-```
+``400` `invalid Stellar address: from` / `to`; `400` `amount must be positive`.
 
 ---
 
 ## Multisig — `/api/multisig`
 
+### `GET /api/multisig/proposal/:id`
+
+Read a multisig proposal by ID.
+
+**Path params:** `id` (string, required) — a positive integer.
+
+**Success `200`**
+
+```json
+{
+  "success": true,
+  "data": { "id": 1, "contractId": "C...", "note": "Connect MULTISIG_CONTRACT_ID and SOURCE_SECRET_KEY to read live data." }
+}
+```
+
+**Errors:** `400` `proposalId must be a positive integer`; `400` `contractId is required`.
+
+### `GET /api/multisig/proposals/pending`
+
+List the IDs (numeric strings) of all proposals whose status is `Pending on the
+multisig contract. This maps to the contract view `get_pending_proposals() -> Vec<u64>`.
+Proposals that have been executed or cancelled are excluded.
+
+The contract implementation scans proposal IDs `from 1 to proposal_count()` in
+persistent storage, so the cost is O.(n) in the number of proposals and no TTL
+bumps are performed by the view.
+
+**Success `200`**
+
+```json
+{
+  "success": true,
+  "data": { "proposalIds": [1, 3, 7], "contractId": "C..." }
+}
+```
+
+Empty list when there are no pending proposals:
+
+```json
+{
+  "success": true,
+  "data": { "proposalIds": [], "contractId": "C..." }
+}
+```
+
+**Errors:** `400` `contractId is required`; `500` if the RPC simulation fails.
+
 ### `POST /api/multisig/proposal`
 
-Submit a proposal.
+Create a multisig proposal.
 
 **Request body**
 
@@ -568,105 +565,51 @@ Submit a proposal.
 |-------|------|----------|
 | `contractId` | string | see [Contract ID](#contract-id) |
 | `proposer` | string (valid Stellar address) | yes |
-| `description` | string | yes |
+| `to` | string (valid Stellar address) | yes |
+| `amount` | number, `> 0` | yes |
+| `description` | string | no |
 
 **Success `202`**
 
 ```json
 {
   "success": true,
-  "message": "Proposal transaction ready for signing.",
-  "data": { "proposer": "G...", "description": "Increase threshold to 3", "contractId": "C..." }
+  "message": "Proposal creation queued. Sign and submit the transaction.",
+  "data": { "proposer": "G...", "to": "G...", "amount": 1000, "contractId": "C..." }
 }
 ```
 
-**Errors:** `400` `proposer and description are required`;
-`400` `proposer is required`; `400` `invalid Stellar address: proposer`.
+**Errors:** `400` `Missing required fields`;
+`400` `invalid Stellar address: proposer` / `to`; `400` `amount must be positive`.
 
-**Example**
+### `POST /api/multisig/approve`
 
-```bash
-curl -X POST http://localhost:3001/api/multisig/proposal \
-  -H 'Content-Type: application/json' \
-  -d '{"proposer":"GAAA...","description":"Increase threshold to 3"}'
-```
-
-```json
-{
-  "success": true,
-  "message": "Proposal transaction ready for signing.",
-  "data": {
-    "proposer": "GAAA...",
-    "description": "Increase threshold to 3",
-    "contractId": "C..."
-  }
-}
-```
-
-### `GET /api/multisig/proposal/:id`
-
-Read a proposal by ID.
-
-**Path params:** `id` (string, required) — echoed as `Number(id)`, no format
-validation in this handler.
-
-**Success `200`**
-
-```json
-{
-  "success": true,
-  "data": { "id": 1, "contractId": "C...", "note": "Set MULTISIG_CONTRACT_ID to read live data." }
-}
-```
-
-### `POST /api/multisig/confirm`
-
-Confirm a proposal.
+Approve a proposal.
 
 **Request body**
 
 | Field | Type | Required |
 |-------|------|----------|
 | `contractId` | string | see [Contract ID](#contract-id) |
-| `owner` | string (valid Stellar address) | yes |
 | `proposalId` | number/string | yes |
+| `signer` | string (valid Stellar address) | yes |
 
 **Success `202`**
 
 ```json
 {
   "success": true,
-  "message": "Confirm transaction ready.",
-  "data": { "owner": "G...", "proposalId": 1, "contractId": "C..." }
+  "message": "Approval transaction ready for signing.",
+  "data": { "proposalId": 1, "signer": "G...", "contractId": "C..." }
 }
 ```
 
-**Errors:** `400` `owner and proposalId are required`;
-`400` `owner is required`; `400` `invalid Stellar address: owner`.
-
-### `POST /api/multisig/revoke-confirm`
-
-Revoke a confirmation.
-
-**Request body:** identical to `POST /confirm` (`owner`, `proposalId`,
-optional `contractId`).
-
-**Success `202`**
-
-```json
-{
-  "success": true,
-  "message": "Revoke confirmation transaction ready.",
-  "data": { "owner": "G...", "proposalId": 1, "contractId": "C..." }
-}
-```
-
-**Errors:** `400` `owner and proposalId are required`; `400` `owner is required`;
-`400` `invalid Stellar address: owner`.
+**Errors:** `400` `proposalId and signer are required`;
+``400` `invalid Stellar address: signer`.
 
 ### `POST /api/multisig/execute`
 
-Execute a ready proposal.
+Execute a proposal.
 
 **Request body**
 
@@ -680,57 +623,12 @@ Execute a ready proposal.
 ```json
 {
   "success": true,
-  "message": "Execute transaction ready.",
+  "message": "Execution transaction ready for signing.",
   "data": { "proposalId": 1, "contractId": "C..." }
 }
 ```
 
 **Errors:** `400` `proposalId is required`.
-
-### `POST /api/multisig/cancel`
-
-Cancel a proposal.
-
-**Request body**
-
-| Field | Type | Required |
-|-------|------|----------|
-| `contractId` | string | see [Contract ID](#contract-id) |
-| `caller` | string (valid Stellar address) | yes |
-| `proposalId` | number/string | yes |
-
-**Success `202`**
-
-```json
-{
-  "success": true,
-  "message": "Cancel transaction ready.",
-  "data": { "caller": "G...", "proposalId": 1, "contractId": "C..." }
-}
-```
-
-**Errors:** `400` `caller and proposalId are required`; `400` `caller is required`;
-`400` `invalid Stellar address: caller`.
-
-### `GET /api/multisig/owners`
-
-List current owners.
-
-**Success `200`**
-
-```json
-{ "success": true, "data": { "owners": [], "contractId": "C..." } }
-```
-
-### `GET /api/multisig/threshold`
-
-Current confirmation threshold.
-
-**Success `200`**
-
-```json
-{ "success": true, "data": { "threshold": 0, "contractId": "C..." } }
-```
 
 ### `GET /api/multisig/count`
 
@@ -741,39 +639,3 @@ Total proposal count.
 ```json
 { "success": true, "data": { "count": 0, "contractId": "C..." } }
 ```
-
----
-
-## Endpoint index
-
-| Method | Path | Success |
-|--------|------|---------|
-| GET | `/api/health` | 200 |
-| GET | `/api/health/ready` | 200 / 503 |
-| POST | `/api/vesting/schedule` | 202 |
-| GET | `/api/vesting/schedule/:id` | 200 |
-| GET | `/api/vesting/claimable/:id` | 200 |
-| POST | `/api/vesting/claim` | 202 |
-| POST | `/api/vesting/revoke` | 202 |
-| POST | `/api/vesting/pause` | 202 |
-| POST | `/api/vesting/unpause` | 202 |
-| GET | `/api/vesting/beneficiary/:addr` | 200 |
-| GET | `/api/vesting/count` | 200 |
-| GET | `/api/token/info` | 200 |
-| GET | `/api/token/balance/:addr` | 200 |
-| GET | `/api/token/allowance` | 200 |
-| POST | `/api/token/mint` | 202 |
-| POST | `/api/token/burn` | 202 |
-| POST | `/api/token/transfer` | 202 |
-| POST | `/api/token/approve` | 202 |
-| POST | `/api/token/pause` | 202 |
-| POST | `/api/token/unpause` | 202 |
-| POST | `/api/multisig/proposal` | 202 |
-| GET | `/api/multisig/proposal/:id` | 200 |
-| POST | `/api/multisig/confirm` | 202 |
-| POST | `/api/multisig/revoke-confirm` | 202 |
-| POST | `/api/multisig/execute` | 202 |
-| POST | `/api/multisig/cancel` | 202 |
-| GET | `/api/multisig/owners` | 200 |
-| GET | `/api/multisig/threshold` | 200 |
-| GET | `/api/multisig/count` | 200 |

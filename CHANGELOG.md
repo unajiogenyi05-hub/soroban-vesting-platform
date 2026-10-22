@@ -8,12 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added �?" 2026-10-21
 
+- multisig: `get_pending_proposals(env) -> Vec<u64>` read-only view
+  returning the IDs of all proposals whose status is `ProposalStatus::Pending`
+  (#105). Scans IDs `1..=proposal_count()` and collects matching proposals,
+  so governance UIs and monitoring bots can list pending proposals in a single
+  RPC call instead of iterating `get_proposal()` per ID. Note: O(n) scan over
+  all proposals; excludes Executed and Cancelled proposals; no TTL bump.
+
 - ci: add `.github/workflows/release.yml` to build the token, vesting, and
   multisig WASM artifacts on `v*.*.*` tags and attach them plus
   `sha256sums.txt` to a GitHub Release (#87).
 
 - multisig: `get_confirmations(proposal_id) -> Vec<Address>` read-only view
   returning the owners who have confirmed a proposal (#104).
+
+### Tests — 2026-10-21
+
+- contracts/multisig/src/lib.rs: tests for `get_pending_proposals()` (#105):
+  empty list with no proposals, correct list after submits, and exclusion of
+  Executed and Cancelled proposals.
 
 ### Fixed — 2026-10-21
 
@@ -36,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Makefile: `lint` target now runs
   `cargo clippy --all --target wasm32v1-none -- -D warnings` to match the
   exact CI invocation, replacing `--all-targets` which diverged from CI (#59).
+
+- contracts/multisig/README.md: added `get_pending_proposals()` to the
+  function reference table, noting the O(n) scan cost and that it is
+  read-only (no TTL bump).
 
 
 ### Added — 2026-10-19
