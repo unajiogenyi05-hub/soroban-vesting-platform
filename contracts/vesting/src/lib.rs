@@ -27,17 +27,13 @@ const ADMIN: Symbol = symbol_short!("ADMIN");
 const PAUSED: Symbol = symbol_short!("PAUSED");
 const SCHED_ID: Symbol = symbol_short!("SCHED_ID");
 
-/// Extend instance and persistent storage to ~180 days (ledgers of ~5 s each).
-/// This equals the network's `max_entry_ttl` (3 110 400 ledgers on both
-/// testnet and mainnet as of protocol 29, per stellar-core soroban-settings).
-/// Values above `max_entry_ttl` are silently clamped by the host, so using
-/// the exact maximum is both correct and maximally protective against archival.
-pub const INSTANCE_BUMP_LEDGERS: u32 = 3_110_400;
-/// Only extend when the remaining TTL drops below ~30 days.
-pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
-/// Persistent Schedule / BeneficiarySchedules entries use the same window.
-pub const PERSISTENT_BUMP_LEDGERS: u32 = 3_110_400;
-pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
+// ─── TTL constants ────────────────────────────────────────────────────────────
+
+/// Re-exported from `common` — see that crate for the rationale.
+pub use common::{
+    INSTANCE_BUMP_LEDGERS, INSTANCE_BUMP_THRESHOLD, PERSISTENT_BUMP_LEDGERS,
+    PERSISTENT_BUMP_THRESHOLD,
+};
 
 // ─── Error type ─────────────────────────────────────────────────────────────
 
@@ -198,7 +194,7 @@ impl VestingContract {
         schedule.beneficiary.require_auth();
 
         if schedule.status != ScheduleStatus::Active {
-            panic_with_error!(&env, VestingError::ScheduleNotActive);
+            panic!("schedule is not active");
         }
 
         let now = env.ledger().timestamp();
@@ -525,6 +521,33 @@ impl VestingContract {
         let now = env.ledger().timestamp();
         let vested = VestingContract::vested_amount(&schedule, now);
         (schedule.total_amount - vested).max(0)
+    }
+
+    /// Return the number of seconds remaining until a schedule is fully vested.
+    ///
+    /// Computes `(start_time + total_duration).saturating_sub(now)` where `now`
+    /// is the current ledger timestamp.  Returns `0` once the schedule has
+    /// reached or passed its end time.
+    ///
+    /// Useful for client-side countdown timers and dashboards that display
+    /// "time remaining" without requiring off-chain arithmetic.
+    ///
+    /// Read-only — does **not** bump the instance or persistent TTL.
+    ///
+    /// # Auth
+    /// None.
+    ///
+    /// # Panics
+    /// - [`VestingError::ScheduleNotFound`] — schedule ID does not exist.
+    pub fn time_until_fully_vested(env: Env, schedule_id: u64) -> u64 {
+        let schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+        let end = schedule.start_time.saturating_add(schedule.total_duration);
+        let now = env.ledger().timestamp();
+        end.saturating_sub(now)
     }
 
     /// Return `true` if a schedule with the given ID exists in storage,
@@ -984,6 +1007,72 @@ mod tests {
         assert_eq!(token_client.balance(&admin), 75_000);
     }
 
+    // ── revoke after full claim: no beneficiary transfer when unclaimed==0 ──
+
+    /// When the beneficiary has already claimed all vested tokens before
+    /// revoke() is called, `unclaimed_vested == 0` and the guarded beneficiary
+    /// transfer must be skipped.  The beneficiary balance must stay at the
+    /// prior claim amount (no double payment), the treasury must receive
+    /// exactly the unvested amount, and the vesting contract must hold 0.
+    #[test]
+    fn test_revoke_after_full_claim_no_beneficiary_transfer() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance to 50% vested and claim all 50_000.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(vesting.get_claimable(&id), 50_000);
+        let claimed = vesting.claim(&id);
+        assert_eq!(claimed, 50_000);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(token_client.balance(&beneficiary), 50_000);
+
+        // Revoke immediately after the claim: unclaimed_vested == 0.
+        let returned = vesting.revoke(&id, &treasury);
+        assert_eq!(returned, 50_000, "unvested amount must be returned");
+
+        // Beneficiary balance must remain at the prior claim amount — no
+        // additional (zero-amount or otherwise) transfer occurred.
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            50_000,
+            "beneficiary must not receive a second payment on revoke"
+        );
+
+        // Treasury receives exactly the unvested amount.
+        assert_eq!(
+            token_client.balance(&treasury),
+            50_000,
+            "treasury must receive exactly the unvested amount"
+        );
+
+        // Vesting contract holds nothing after revoke.
+        assert_eq!(
+            token_client.balance(&vesting_id),
+            0,
+            "vesting contract must hold 0 after revoke"
+        );
+
+        // Schedule is Revoked and claimed_amount reflects the full vested portion.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
+        assert_eq!(sched.claimed_amount, 50_000);
+    }
+
     // ── revoke returns unvested tokens (original test variant) ───────────────
 
     #[test]
@@ -1010,6 +1099,80 @@ mod tests {
 
         let sched = vesting.get_schedule(&id);
         assert_eq!(sched.status, ScheduleStatus::Revoked);
+    }
+
+    // ── revoke after schedule has fully vested ───────────────────────────────
+    //
+    // When revoke() is called after total_duration has elapsed, all tokens are
+    // already vested. The unvested portion is 0, so nothing is returned to the
+    // recipient. The beneficiary receives all unclaimed vested tokens (the full
+    // total_amount since no prior claims were made).
+    //
+    // Schedule: cliff_duration=0, total_duration=100, total_amount=100_000
+    // Revoke at t = start + 200 (past end):
+    //   - vested = total_amount = 100_000
+    //   - unvested = 0
+    //   - unclaimed_vested = total_amount - 0 = 100_000
+    //
+    // Expected:
+    //   - return value == 0 (no unvested tokens)
+    //   - beneficiary balance == 100_000 (all vested, paid on revoke)
+    //   - recipient balance == 0
+    //   - schedule.status == ScheduleStatus::Revoked
+    #[test]
+    fn test_revoke_after_full_vest() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance ledger to start + 200 (past end of schedule)
+        env.ledger().with_mut(|l| l.timestamp = start + 200);
+
+        // All tokens are vested; revoke should return 0 unvested
+        let returned = vesting.revoke(&id, &recipient);
+        assert_eq!(returned, 0, "revoke after full vest must return 0 unvested");
+
+        // Beneficiary receives the full amount (all vested, none previously claimed)
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            100_000,
+            "beneficiary must receive full total_amount when all tokens are vested"
+        );
+
+        // Recipient receives nothing (no unvested tokens)
+        assert_eq!(
+            token_client.balance(&recipient),
+            0,
+            "recipient must receive 0 when there are no unvested tokens"
+        );
+
+        // Schedule is marked Revoked
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(
+            sched.status,
+            ScheduleStatus::Revoked,
+            "schedule status must be Revoked after revoke()"
+        );
+
+        // Vesting contract holds nothing
+        assert_eq!(
+            token_client.balance(&vesting_id),
+            0,
+            "vesting contract must hold 0 tokens after revoke"
+        );
     }
 
     // ── revoke before cliff: 0 vested, 100% returned to recipient ────────────
@@ -1106,6 +1269,56 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         vesting.revoke(&id, &admin);
         vesting.claim(&id); // must panic with VestingError::ScheduleNotActive
+    }
+
+    // ── claim on a completed schedule must error with "schedule is not active"
+
+    /// After the beneficiary claims the final tranche of a vesting schedule,
+    /// the schedule status transitions to Completed. A subsequent call to
+    /// claim() on that schedule must panic with "schedule is not active".
+    ///
+    /// Schedule: cliff_duration=0, total_duration=100, total_amount=100_000
+    /// 1. Advance to start + 100 (fully vested).
+    /// 2. First claim() returns 100_000 — schedule transitions to Completed.
+    /// 3. Second claim() must panic with "schedule is not active".
+    #[test]
+    #[should_panic(expected = "schedule is not active")]
+    fn test_claim_on_completed_schedule_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance past full duration so all tokens are claimable.
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+
+        // First claim succeeds and returns the full total_amount.
+        let first_claim = vesting.claim(&id);
+        assert_eq!(
+            first_claim, 100_000,
+            "first claim must return the full total_amount"
+        );
+
+        // Schedule is now Completed.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(
+            sched.status,
+            ScheduleStatus::Completed,
+            "schedule must be Completed after claiming all tokens"
+        );
+
+        // Second claim on a Completed schedule must panic with "schedule is not active".
+        vesting.claim(&id);
     }
 
     // ── nothing to claim before cliff ────────────────────────────────────────
@@ -1215,6 +1428,67 @@ mod tests {
 
         vesting.transfer_admin(&new_admin);
         assert_eq!(vesting.get_admin(), new_admin);
+    }
+
+    /// After transfer_admin, only the old admin's auth is not enough:
+    /// create_schedule must panic.
+    #[test]
+    #[should_panic]
+    fn test_vesting_transfer_admin_revokes_old_admin() {
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        use soroban_sdk::IntoVal;
+
+        let (env, vesting_id, old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+        vesting.transfer_admin(&new_admin);
+
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        // Only the old admin authorizes the call; require_admin() now checks new_admin.
+        env.mock_auths(&[MockAuth {
+            address: &old_admin,
+            invoke: &MockAuthInvoke {
+                contract: &vesting_id,
+                fn_name: "create_schedule",
+                args: (params.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        vesting.create_schedule(&params); // must panic: new_admin auth missing
+    }
+
+    /// After transfer_admin, the new admin can create schedules.
+    #[test]
+    fn test_vesting_transfer_admin_new_admin_can_create_schedule() {
+        let (env, vesting_id, _old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+        vesting.transfer_admin(&new_admin);
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        assert_eq!(vesting.get_admin(), new_admin);
+        assert_eq!(vesting.schedule_count(), 1);
+        assert_eq!(id, 1);
     }
 
     // ── schedule_count increments ────────────────────────────────────────────
@@ -2599,6 +2873,97 @@ mod tests {
             total_duration: u64::MAX - 1,
         });
     }
+
+    // ── time_until_fully_vested (#127) ────────────────────────────────────────
+
+    /// Returns a positive value mid-schedule.
+    #[test]
+    fn test_time_until_fully_vested_mid_schedule() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 200,
+        });
+
+        // At t = start + 50: 150 seconds remain.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(
+            vesting.time_until_fully_vested(&id),
+            150,
+            "expected 150 seconds remaining mid-schedule"
+        );
+    }
+
+    /// Returns 0 exactly at total_duration.
+    #[test]
+    fn test_time_until_fully_vested_at_end() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        assert_eq!(
+            vesting.time_until_fully_vested(&id),
+            0,
+            "expected 0 at exactly total_duration"
+        );
+    }
+
+    /// Returns 0 after total_duration (schedule already completed).
+    #[test]
+    fn test_time_until_fully_vested_after_end() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Well past the end.
+        env.ledger().with_mut(|l| l.timestamp = start + 500);
+        assert_eq!(
+            vesting.time_until_fully_vested(&id),
+            0,
+            "expected 0 after schedule end"
+        );
+    }
+
+    /// Panics for a non-existent schedule ID.
+    #[test]
+    #[should_panic]
+    fn test_time_until_fully_vested_not_found_panics() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        vesting.time_until_fully_vested(&999u64);
+    }
 }
 
 // ─── Task C: end-to-end tests using the real token contract ──────────────────
@@ -2870,6 +3235,81 @@ mod e2e_token_tests {
         assert_eq!(token.total_supply(), 100_000);
     }
 
+    /// The multisig (2-of-3) is the vesting admin.  A `ProposalAction::Call`
+    /// targeting `vesting.revoke(schedule_id, treasury)` is submitted,
+    /// confirmed by two owners and executed.  At t=50 the beneficiary gets the
+    /// vested half and the treasury gets the unvested half.
+    #[test]
+    fn test_multisig_revoke_via_proposal() {
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
+        use soroban_sdk::{IntoVal, Val};
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
+
+        let (token_addr, token) = deploy_token(&env, &funder, 100_000);
+        let (vesting_id, vesting) = deploy_vesting(&env, &ms_id);
+
+        let start = env.ledger().timestamp();
+
+        // Create the schedule directly (funder authorises the token pull).
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        assert_eq!(token.balance(&vesting_id), 100_000);
+
+        // 50% vested
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+
+        let mut args: soroban_sdk::Vec<Val> = soroban_sdk::Vec::new(&env);
+        args.push_back(id.into_val(&env));
+        args.push_back(treasury.into_val(&env));
+
+        let pid = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::Symbol::new(&env, "revoke"),
+                args,
+            }),
+            &soroban_sdk::String::from_str(&env, "revoke schedule via multisig"),
+        );
+
+        ms.confirm(&o1, &pid);
+        ms.confirm(&o2, &pid);
+        ms.execute(&pid);
+
+        assert_eq!(
+            ms.get_proposal(&pid).status,
+            multisig::ProposalStatus::Executed
+        );
+        assert_eq!(vesting.get_schedule(&id).status, ScheduleStatus::Revoked);
+        assert_eq!(token.balance(&beneficiary), 50_000);
+        assert_eq!(token.balance(&treasury), 50_000);
+        assert_eq!(token.balance(&vesting_id), 0);
+        assert_eq!(token.total_supply(), 100_000);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // C-5: total supply conservation across multiple schedules
     // ─────────────────────────────────────────────────────────────────────────
@@ -3041,11 +3481,7 @@ mod prop_tests {
 pub(crate) mod test_helpers {
     use super::*;
     use ::token::{TokenContract, TokenContractClient};
-    use soroban_sdk::{
-        testutils::Address as _,
-        token::StellarAssetClient,
-        Env, String,
-    };
+    use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Env, String};
 
     /// Deploy a `VestingContract` with `admin` and return its contract address.
     pub fn deploy_vesting_with_admin(env: &Env, admin: &Address) -> Address {

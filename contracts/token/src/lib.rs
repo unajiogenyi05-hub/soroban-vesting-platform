@@ -42,17 +42,11 @@ const DECIMALS: Symbol = symbol_short!("DECIMALS");
 
 // ─── TTL constants ────────────────────────────────────────────────────────────
 
-/// Extend instance and persistent storage to ~180 days (ledgers of ~5 s each).
-/// This equals the network's `max_entry_ttl` (3 110 400 ledgers on both
-/// testnet and mainnet as of protocol 29, per stellar-core soroban-settings).
-/// Values above `max_entry_ttl` are silently clamped by the host, so using
-/// the exact maximum is both correct and maximally protective against archival.
-pub const INSTANCE_BUMP_LEDGERS: u32 = 3_110_400;
-/// Only extend when the remaining TTL drops below ~30 days.
-pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
-/// Persistent entries use the same window.
-pub const PERSISTENT_BUMP_LEDGERS: u32 = 3_110_400;
-pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
+/// Re-exported from `common` — see that crate for the rationale.
+pub use common::{
+    INSTANCE_BUMP_LEDGERS, INSTANCE_BUMP_THRESHOLD, PERSISTENT_BUMP_LEDGERS,
+    PERSISTENT_BUMP_THRESHOLD,
+};
 
 // ─── Error type ──────────────────────────────────────────────────────────────
 
@@ -594,7 +588,7 @@ impl TokenContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Events};
+    use soroban_sdk::testutils::{Address as _, Events, MockAuth, MockAuthInvoke};
     use soroban_sdk::{vec, Env, IntoVal};
 
     fn deploy() -> (Env, Address, Address) {
@@ -915,6 +909,68 @@ mod tests {
         assert_eq!(token.admin(), new_admin);
     }
 
+    #[test]
+    fn test_token_transfer_admin_revokes_old_admin() {
+        let (env, contract_id, admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let new_admin = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        env.set_auths(&[]);
+        env.mock_auths(&[
+            MockAuth {
+                address: &admin,
+                invoke: &MockAuthInvoke {
+                    contract: &contract_id,
+                    fn_name: "transfer_admin",
+                    args: (&new_admin,).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+            MockAuth {
+                address: &new_admin,
+                invoke: &MockAuthInvoke {
+                    contract: &contract_id,
+                    fn_name: "transfer_admin",
+                    args: (&new_admin,).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+        ]);
+        token.transfer_admin(&new_admin);
+        assert_eq!(token.admin(), new_admin);
+
+        env.mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "mint",
+                args: (&recipient, 100i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        assert_eq!(
+            token.try_mint(&recipient, &100),
+            Err(Ok(soroban_sdk::Error::from_type_and_code(
+                soroban_sdk::xdr::ScErrorType::Context,
+                soroban_sdk::xdr::ScErrorCode::InvalidAction,
+            )))
+        );
+        assert_eq!(token.balance(&recipient), 0);
+
+        env.mock_auths(&[MockAuth {
+            address: &new_admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "mint",
+                args: (&recipient, 100i128).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        token.mint(&recipient, &100);
+        assert_eq!(token.balance(&recipient), 100);
+    }
+
     // ── Allowance edge cases ──────────────────────────────────────────────────
 
     #[test]
@@ -1100,11 +1156,11 @@ mod tests {
 
     // ── Constructor guards ────────────────────────────────────────────────────
 
-    /// The constructor must panic with "decimals too large" when `decimals`
-    /// exceeds 18.  Registering the contract with `decimals = 19` exercises
-    /// the guard on line ~84 of lib.rs.
+    /// The constructor must reject `decimals` above 18 with
+    /// `TokenError::DecimalsTooLarge` (contract error code 1). Registering the
+    /// contract with `decimals = 19` exercises the guard on line ~84 of lib.rs.
     #[test]
-    #[should_panic(expected = "decimals too large")]
+    #[should_panic(expected = "Error(Contract, #1)")]
     fn test_constructor_rejects_decimals_too_large() {
         let env = Env::default();
         env.mock_all_auths();

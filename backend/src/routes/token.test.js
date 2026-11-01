@@ -16,6 +16,7 @@ const mockSimulate = jest.fn().mockResolvedValue({
 
 jest.mock('../services/stellar', () => ({
   simulateContractCall: mockSimulate,
+  validateStellarAddress: jest.fn((addr) => typeof addr === 'string' && addr.startsWith('G') && !['not-a-stellar-address', 'GABC123'].includes(addr)),
   NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
   RPC_URL: 'https://soroban-testnet.stellar.org',
 }));

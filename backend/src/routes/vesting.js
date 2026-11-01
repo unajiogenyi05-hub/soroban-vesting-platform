@@ -15,7 +15,9 @@
  */
 
 const { Router } = require('express');
+const { Keypair, nativeToScVal, scValToNative } = require('@stellar/stellar-sdk');
 const logger = require('../logger');
+const { simulateContractCall, validateStellarAddress } = require('../services/stellar');
 
 const router = Router();
 
@@ -40,7 +42,14 @@ function contractIdMiddleware(req, res, next) {
  */
 router.get('/schedule/:id', contractIdMiddleware, async (req, res, next) => {
   try {
-    const scheduleId = BigInt(req.params.id);
+    const rawId = req.params.id;
+    const isValidPositiveInteger = /^\d+$/.test(rawId) && BigInt(rawId) > 0n;
+
+    if (!isValidPositiveInteger) {
+      return res.status(400).json({ error: 'scheduleId must be a positive integer' });
+    }
+
+    const scheduleId = BigInt(rawId);
     logger.info(`get_schedule id=${scheduleId}`);
 
     // In a full implementation this would call simulateContractCall.
@@ -61,12 +70,45 @@ router.get('/schedule/:id', contractIdMiddleware, async (req, res, next) => {
 /**
  * GET /api/vesting/claimable/:id
  */
-router.get('/claimable/:id', contractIdMiddleware, async (req, res, next) => {
+router.get('/claimable/:id', async (req, res, next) => {
   try {
+    const rawId = req.params.id;
+    if (!/^\d+$/.test(rawId)) {
+      return res.status(400).json({ error: 'scheduleId must be a positive u64 integer' });
+    }
+
+    const scheduleId = BigInt(rawId);
+    if (scheduleId <= 0n || scheduleId > 18446744073709551615n) {
+      return res.status(400).json({ error: 'scheduleId must be a positive u64 integer' });
+    }
+
+    const contractId = process.env.VESTING_CONTRACT_ID || '';
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+      const simResult = await simulateContractCall({
+        contractId,
+        method: 'get_claimable',
+        args: [nativeToScVal(scheduleId, { type: 'u64' })],
+        sourceKeypair,
+      });
+      const claimableAmount = scValToNative(simResult.result.retval);
+
+      return res.json({
+        success: true,
+        data: {
+          scheduleId: Number(scheduleId),
+          claimableAmount: claimableAmount.toString(),
+          contractId,
+        },
+      });
+    }
+
     res.json({
       success: true,
       data: {
-        scheduleId: Number(req.params.id),
+        scheduleId: Number(scheduleId),
         claimableAmount: 0,
         note: 'Set VESTING_CONTRACT_ID to query live contract.',
       },
@@ -90,6 +132,15 @@ router.post('/schedule', contractIdMiddleware, async (req, res, next) => {
 
     if (!from || !beneficiary || !tokenAddress || !totalAmount) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+    if (!validateStellarAddress(from)) {
+      return res.status(400).json({ error: 'invalid Stellar address: from' });
+    }
+    if (!validateStellarAddress(beneficiary)) {
+      return res.status(400).json({ error: 'invalid Stellar address: beneficiary' });
+    }
+    if (!validateStellarAddress(tokenAddress)) {
+      return res.status(400).json({ error: 'invalid Stellar address: tokenAddress' });
     }
     if (Number(totalAmount) <= 0) {
       return res.status(400).json({ error: 'totalAmount must be positive' });
@@ -129,6 +180,9 @@ router.post('/claim', contractIdMiddleware, async (req, res, next) => {
     if (!scheduleId || !beneficiary) {
       return res.status(400).json({ error: 'scheduleId and beneficiary are required' });
     }
+    if (!validateStellarAddress(beneficiary)) {
+      return res.status(400).json({ error: 'invalid Stellar address: beneficiary' });
+    }
     logger.info(`claim scheduleId=${scheduleId} by=${beneficiary}`);
     res.status(202).json({
       success: true,
@@ -149,6 +203,9 @@ router.post('/revoke', contractIdMiddleware, async (req, res, next) => {
     const { scheduleId, recipient } = req.body;
     if (!scheduleId || !recipient) {
       return res.status(400).json({ error: 'scheduleId and recipient are required' });
+    }
+    if (!validateStellarAddress(recipient)) {
+      return res.status(400).json({ error: 'invalid Stellar address: recipient' });
     }
     logger.info(`revoke scheduleId=${scheduleId} recipient=${recipient}`);
     res.status(202).json({

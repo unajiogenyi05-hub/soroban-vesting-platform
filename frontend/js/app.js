@@ -15,6 +15,31 @@ const state = {
 // ── Utils ─────────────────────────────────────────────────────────────────────
 
 /**
+ * Shared status-message element for user-visible error/success messages.
+ * Uses textContent (not innerHTML) to prevent XSS.
+ */
+function showError(message) {
+  const el = document.getElementById('status-message');
+  if (!el) return;
+  el.textContent = message;
+  el.className = 'status-message status-message--error';
+}
+
+function showSuccess(message) {
+  const el = document.getElementById('status-message');
+  if (!el) return;
+  el.textContent = message;
+  el.className = 'status-message status-message--success';
+}
+
+function clearStatusMessage() {
+  const el = document.getElementById('status-message');
+  if (!el) return;
+  el.textContent = '';
+  el.className = 'status-message';
+}
+
+/**
  * Fetch wrapper that always returns { ok, data, error }.
  */
 async function apiFetch(path, options = {}) {
@@ -46,6 +71,29 @@ function showToast(message, type = 'info') {
     toast.style.transition = 'all 0.3s ease';
     setTimeout(() => toast.remove(), 320);
   }, 3500);
+}
+
+// ── Input validation ──────────────────────────────────────────────────────────
+
+/**
+ * Validate a Stellar Ed25519 public key.
+ * A valid key is exactly 56 characters, starts with 'G', and uses the
+ * base-32 alphabet (A-Z and 2-7).
+ * @param {string} addr
+ * @returns {boolean}
+ */
+function validateAddress(addr) {
+  return /^G[A-Z2-7]{55}$/.test(addr);
+}
+
+/**
+ * Validate that a value is a positive finite number.
+ * @param {string|number} val
+ * @returns {boolean}
+ */
+function validateAmount(val) {
+  const n = Number(val);
+  return Number.isFinite(n) && n > 0;
 }
 
 /**
@@ -137,14 +185,37 @@ document.getElementById('createScheduleForm')?.addEventListener('submit', async 
   e.preventDefault();
   clearResult('createScheduleResult');
 
+  const from         = document.getElementById('cs-from').value.trim();
+  const beneficiary  = document.getElementById('cs-beneficiary').value.trim();
+  const tokenAddress = document.getElementById('cs-token').value.trim();
+  const totalAmount  = document.getElementById('cs-amount').value;
+  const totalDuration = document.getElementById('cs-duration').value;
+
+  if (!validateAddress(from)) {
+    showResult('createScheduleResult', '✗ Funder address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+  if (!validateAddress(beneficiary)) {
+    showResult('createScheduleResult', '✗ Beneficiary address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+  if (!validateAmount(totalAmount)) {
+    showResult('createScheduleResult', '✗ Total amount must be a positive number', 'error');
+    return;
+  }
+  if (!validateAmount(totalDuration)) {
+    showResult('createScheduleResult', '✗ Total duration must be a positive number', 'error');
+    return;
+  }
+
   const body = {
     contractId:    state.vestingContractId,
-    from:          document.getElementById('cs-from').value.trim(),
-    beneficiary:   document.getElementById('cs-beneficiary').value.trim(),
-    tokenAddress:  document.getElementById('cs-token').value.trim(),
-    totalAmount:   Number(document.getElementById('cs-amount').value),
+    from,
+    beneficiary,
+    tokenAddress,
+    totalAmount:   Number(totalAmount),
     cliffDuration: Number(document.getElementById('cs-cliff').value),
-    totalDuration: Number(document.getElementById('cs-duration').value),
+    totalDuration: Number(totalDuration),
   };
 
   const { ok, data, error } = await apiFetch('/vesting/schedule', {
@@ -180,12 +251,18 @@ document.getElementById('claimForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearResult('claimResult');
 
+  const beneficiary = document.getElementById('claim-beneficiary').value.trim();
+  if (!validateAddress(beneficiary)) {
+    showResult('claimResult', '✗ Beneficiary address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+
   const { ok, data, error } = await apiFetch('/vesting/claim', {
     method: 'POST',
     body: JSON.stringify({
       contractId:  state.vestingContractId,
       scheduleId:  Number(document.getElementById('claim-id').value),
-      beneficiary: document.getElementById('claim-beneficiary').value.trim(),
+      beneficiary,
     }),
   });
 
@@ -201,12 +278,18 @@ document.getElementById('revokeForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearResult('revokeResult');
 
+  const recipient = document.getElementById('revoke-recipient').value.trim();
+  if (!validateAddress(recipient)) {
+    showResult('revokeResult', '✗ Return recipient address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+
   const { ok, data, error } = await apiFetch('/vesting/revoke', {
     method: 'POST',
     body: JSON.stringify({
       contractId: state.vestingContractId,
       scheduleId: Number(document.getElementById('revoke-id').value),
-      recipient:  document.getElementById('revoke-recipient').value.trim(),
+      recipient,
     }),
   });
 
@@ -226,26 +309,39 @@ document.getElementById('loadTokenInfoBtn')?.addEventListener('click', async () 
   );
   const grid = document.getElementById('tokenInfoGrid');
   if (!grid) return;
-  if (!ok) { grid.innerHTML = `<span style="color:var(--color-danger)">${error}</span>`; return; }
+  if (!ok) { showError(error || 'Failed to load token info'); return; }
 
+  // Build child elements safely (no innerHTML) to prevent XSS
   const items = [
     ['Name',    data?.name        ?? '—'],
     ['Symbol',  data?.symbol      ?? '—'],
     ['Decimals',data?.decimals    ?? '—'],
     ['Supply',  data?.totalSupply ?? '—'],
   ];
-  grid.innerHTML = items.map(([k, v]) =>
-    `<div class="info-item">
-       <span class="info-item__key">${k}</span>
-       <span class="info-item__value">${v}</span>
-     </div>`
-  ).join('');
+  grid.textContent = '';
+  items.forEach(([k, v]) => {
+    const item = document.createElement('div');
+    item.className = 'info-item';
+    const keySpan = document.createElement('span');
+    keySpan.className = 'info-item__key';
+    keySpan.textContent = k;
+    const valSpan = document.createElement('span');
+    valSpan.className = 'info-item__value';
+    valSpan.textContent = v;
+    item.appendChild(keySpan);
+    item.appendChild(valSpan);
+    grid.appendChild(item);
+  });
 });
 
 document.getElementById('balanceForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearResult('balanceResult');
   const addr = document.getElementById('bal-addr').value.trim();
+  if (!validateAddress(addr)) {
+    showResult('balanceResult', '✗ Address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
   const { ok, data, error } = await apiFetch(
     `/token/balance/${addr}?contractId=${state.tokenContractId}`
   );
@@ -259,12 +355,22 @@ document.getElementById('balanceForm')?.addEventListener('submit', async (e) => 
 document.getElementById('mintForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearResult('mintResult');
+  const to     = document.getElementById('mint-to').value.trim();
+  const amount = document.getElementById('mint-amount').value;
+  if (!validateAddress(to)) {
+    showResult('mintResult', '✗ To address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+  if (!validateAmount(amount)) {
+    showResult('mintResult', '✗ Amount must be a positive number', 'error');
+    return;
+  }
   const { ok, data, error } = await apiFetch('/token/mint', {
     method: 'POST',
     body: JSON.stringify({
       contractId: state.tokenContractId,
-      to:         document.getElementById('mint-to').value.trim(),
-      amount:     Number(document.getElementById('mint-amount').value),
+      to,
+      amount:     Number(amount),
     }),
   });
   if (ok) {
@@ -278,13 +384,28 @@ document.getElementById('mintForm')?.addEventListener('submit', async (e) => {
 document.getElementById('transferForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearResult('transferResult');
+  const from   = document.getElementById('tf-from').value.trim();
+  const to     = document.getElementById('tf-to').value.trim();
+  const amount = document.getElementById('tf-amount').value;
+  if (!validateAddress(from)) {
+    showResult('transferResult', '✗ From address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+  if (!validateAddress(to)) {
+    showResult('transferResult', '✗ To address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
+  if (!validateAmount(amount)) {
+    showResult('transferResult', '✗ Amount must be a positive number', 'error');
+    return;
+  }
   const { ok, data, error } = await apiFetch('/token/transfer', {
     method: 'POST',
     body: JSON.stringify({
       contractId: state.tokenContractId,
-      from:       document.getElementById('tf-from').value.trim(),
-      to:         document.getElementById('tf-to').value.trim(),
-      amount:     Number(document.getElementById('tf-amount').value),
+      from,
+      to,
+      amount:     Number(amount),
     }),
   });
   if (ok) {
@@ -300,11 +421,16 @@ document.getElementById('transferForm')?.addEventListener('submit', async (e) =>
 document.getElementById('submitProposalForm')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   clearResult('proposalResult');
+  const proposer = document.getElementById('prop-proposer').value.trim();
+  if (!validateAddress(proposer)) {
+    showResult('proposalResult', '✗ Proposer address is not a valid Stellar public key (G…)', 'error');
+    return;
+  }
   const { ok, data, error } = await apiFetch('/multisig/proposal', {
     method: 'POST',
     body: JSON.stringify({
       contractId:  state.multisigContractId,
-      proposer:    document.getElementById('prop-proposer').value.trim(),
+      proposer,
       description: document.getElementById('prop-desc').value.trim(),
     }),
   });
@@ -322,6 +448,10 @@ async function multisigAction(endpoint, extraBody) {
   const owner      = document.getElementById('conf-owner').value.trim();
   if (!proposalId || !owner) {
     showResult('confirmResult', '✗ Enter proposal ID and owner address', 'error');
+    return;
+  }
+  if (!validateAddress(owner)) {
+    showResult('confirmResult', '✗ Owner address is not a valid Stellar public key (G…)', 'error');
     return;
   }
   const { ok, data, error } = await apiFetch(`/multisig/${endpoint}`, {
@@ -360,13 +490,23 @@ document.getElementById('loadOwnersBtn')?.addEventListener('click', async () => 
   );
   const list = document.getElementById('ownersList');
   if (!list) return;
-  if (!ok) { list.innerHTML = `<li style="color:var(--color-danger)">${error}</li>`; return; }
-  const owners = data?.owners || [];
-  if (!owners.length) {
-    list.innerHTML = '<li>No owners found (set MULTISIG_CONTRACT_ID)</li>';
+  if (!ok) {
+    showError(error || 'Failed to load owners');
     return;
   }
-  list.innerHTML = owners.map((o) => `<li>${o}</li>`).join('');
+  const owners = data?.owners || [];
+  list.textContent = '';
+  if (!owners.length) {
+    const li = document.createElement('li');
+    li.textContent = 'No owners found (set MULTISIG_CONTRACT_ID)';
+    list.appendChild(li);
+    return;
+  }
+  owners.forEach((o) => {
+    const li = document.createElement('li');
+    li.textContent = o;
+    list.appendChild(li);
+  });
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────

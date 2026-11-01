@@ -6,6 +6,108 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added �?" 2026-10-21
+
+- multisig: `get_pending_proposals(env) -> Vec<u64>` read-only view
+  returning the IDs of all proposals whose status is `ProposalStatus::Pending`
+  (#105). Scans IDs `1..=proposal_count()` and collects matching proposals,
+  so governance UIs and monitoring bots can list pending proposals in a single
+  RPC call instead of iterating `get_proposal()` per ID. Note: O(n) scan over
+  all proposals; excludes Executed and Cancelled proposals; no TTL bump.
+
+- ci: add `.github/workflows/release.yml` to build the token, vesting, and
+  multisig WASM artifacts on `v*.*.*` tags and attach them plus
+  `sha256sums.txt` to a GitHub Release (#87).
+
+- multisig: `get_confirmations(proposal_id) -> Vec<Address>` read-only view
+  returning the owners who have confirmed a proposal (#104).
+
+### Tests — 2026-10-21
+
+- contracts/multisig/src/lib.rs: tests for `get_pending_proposals()` (#105):
+  empty list with no proposals, correct list after submits, and exclusion of
+  Executed and Cancelled proposals.
+
+### Fixed — 2026-10-21
+
+- backend/src/routes/vesting.js: `GET /api/vesting/claimable/:id` now simulates
+  `get_claimable` and returns the live on-chain amount when
+  `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are configured. It falls back
+  to the existing stub if either setting is absent; `docs/api.md` documents
+  both response shapes.
+
+- Makefile: `setup` target now installs `wasm32v1-none` instead of the
+  outdated `wasm32-unknown-unknown` target (#59).
+
+- Makefile: `build` target now uses `stellar contract build` instead of
+  `cargo build --all --target wasm32-unknown-unknown --release` (#59).
+
+- Makefile: `build-optimized` target now references
+  `target/wasm32v1-none/release/` instead of
+  `target/wasm32-unknown-unknown/release/` (#59).
+
+- Makefile: `lint` target now runs
+  `cargo clippy --all --target wasm32v1-none -- -D warnings` to match the
+  exact CI invocation, replacing `--all-targets` which diverged from CI (#59).
+
+- contracts/multisig/README.md: added `get_pending_proposals()` to the
+  function reference table, noting the O(n) scan cost and that it is
+  read-only (no TTL bump).
+
+
+### Added — 2026-10-19
+
+- docs/api.md: REST API reference for the backend (#60). One
+  section per route group (health, vesting, token, multisig) documenting
+  all 29 endpoints (the 28 listed in the issue plus `GET /api/health/ready`,
+  which exists in `health.js`) with method, path, request fields with types
+  and required flags, success status and response shape, and error responses —
+  derived directly from `backend/src/routes/*.js`. Covers the shared
+  `contractId` resolution
+  (body → query → env var), 200/202 success conventions, the `{ error }` /
+  `{ error, code }` error shapes, rate limiting, and stub-vs-live response
+  differences (including the `balance` string/number distinction). Includes
+  request/response examples per group and a full endpoint index table.
+
+- README.md: "Backend API — live data note" section now links to
+  docs/api.md.
+
+### Fixed — 2026-10-18
+
+- backend/src/routes/vesting.js: reject invalid schedule IDs before converting
+  `req.params.id` with `BigInt()`. The GET `/api/vesting/schedule/:id` route now
+  returns HTTP 400 with `{ error: 'scheduleId must be a positive integer' }` for
+  non-numeric or negative IDs instead of crashing with a 500. Added regression
+  coverage in `backend/src/routes/vesting.test.js` for `abc` and `-1` inputs.
+
+### Added — 2026-10-17
+
+- backend/src/services/stellar.js: `validateStellarAddress(addr)` helper (#132).
+  Wraps `StrKey.isValidEd25519PublicKey()` from `@stellar/stellar-sdk` and
+  returns `true` only for valid 56-character `G...` Stellar public keys.
+  Applied to every address field on the mutating routes: `POST
+  /api/vesting/schedule` (`from`, `beneficiary`, `tokenAddress`), `POST
+  /api/vesting/claim` (`beneficiary`), `POST /api/vesting/revoke`
+  (`recipient`), `POST /api/token/mint` (`to`), `POST /api/token/transfer`
+  (`from`, `to`), `POST /api/multisig/proposal` (`proposer`), and `POST
+  /api/multisig/confirm` (`owner`). Invalid addresses now return HTTP 400
+  with `{ error: 'invalid Stellar address: <field>' }` instead of a 500
+  from the SDK. New tests in `vesting.test.js`, `token.test.js`, and
+  `multisig.test.js` cover invalid address inputs.
+
+### Tests — 2026-10-17
+
+- contracts/vesting/src/lib.rs: `test_revoke_after_full_claim_no_beneficiary_transfer`
+  (#131). Covers the previously untested zero branch of `revoke()`'s
+  `if unclaimed_vested > 0` guard. Creates a 100-unit schedule, advances to
+  50% vested, claims all 50, then revokes immediately. Asserts the returned
+  unvested amount is 50, the beneficiary balance stays at 50 (no duplicate
+  payment), the treasury receives exactly 50, and the vesting contract holds
+  0. Complements the existing `test_revoke_pays_vested_to_beneficiary`
+  (non-zero path) and `test_e2e_revoke_after_partial_claim`. No contract
+  behaviour changed; the test verifies the CEI ordering assumption that a
+  fully-claimed beneficiary is not paid twice on revoke.
+
 
 ### Changed — 2026-10-17
 
@@ -58,6 +160,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `npm run lint` reports zero warnings for `stellar.js`.
 
 ### Added — 2026-10-17
+
+- contracts/vesting/src/lib.rs: `time_until_fully_vested(env, schedule_id) -> u64`
+  view function (#127). Returns `(start_time + total_duration).saturating_sub(now)`
+  — the number of seconds remaining until the schedule fully vests. Returns `0`
+  when the schedule has already reached or passed its end time. Useful for
+  client-side countdown timers and dashboards that need "time remaining" without
+  off-chain arithmetic. Read-only: no TTL bump. Four new tests:
+  `test_time_until_fully_vested_mid_schedule` (positive value before end),
+  `test_time_until_fully_vested_at_end` (0 at exactly `total_duration`),
+  `test_time_until_fully_vested_after_end` (0 past end),
+  `test_time_until_fully_vested_not_found_panics` (panics for unknown ID).
+  README Vesting API table updated.
 
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
   Documents every `panic_with_error!` call in the vesting contract source with

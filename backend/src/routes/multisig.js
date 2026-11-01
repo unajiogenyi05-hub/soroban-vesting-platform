@@ -16,6 +16,7 @@
 
 const { Router } = require('express');
 const logger = require('../logger');
+const { validateStellarAddress } = require('../services/stellar');
 
 const router = Router();
 const CONTRACT_ID = process.env.MULTISIG_CONTRACT_ID || '';
@@ -27,12 +28,25 @@ function contractIdMiddleware(req, res, next) {
   next();
 }
 
+function requireAddress(res, value, field) {
+  if (!value) {
+    res.status(400).json({ error: `${field} is required` });
+    return false;
+  }
+  if (!validateStellarAddress(value)) {
+    res.status(400).json({ error: `invalid Stellar address: ${field}` });
+    return false;
+  }
+  return true;
+}
+
 router.post('/proposal', contractIdMiddleware, async (req, res, next) => {
   try {
     const { proposer, description } = req.body;
     if (!proposer || !description) {
       return res.status(400).json({ error: 'proposer and description are required' });
     }
+    if (!requireAddress(res, proposer, 'proposer')) return;
     logger.info(`submit proposal proposer=${proposer}`);
     res.status(202).json({
       success: true,
@@ -65,6 +79,7 @@ router.post('/confirm', contractIdMiddleware, async (req, res, next) => {
     if (!owner || !proposalId) {
       return res.status(400).json({ error: 'owner and proposalId are required' });
     }
+    if (!requireAddress(res, owner, 'owner')) return;
     logger.info(`confirm proposal=${proposalId} owner=${owner}`);
     res.status(202).json({
       success: true,
@@ -82,6 +97,7 @@ router.post('/revoke-confirm', contractIdMiddleware, async (req, res, next) => {
     if (!owner || !proposalId) {
       return res.status(400).json({ error: 'owner and proposalId are required' });
     }
+    if (!requireAddress(res, owner, 'owner')) return;
     res.status(202).json({
       success: true,
       message: 'Revoke confirmation transaction ready.',
@@ -113,6 +129,7 @@ router.post('/cancel', contractIdMiddleware, async (req, res, next) => {
     if (!caller || !proposalId) {
       return res.status(400).json({ error: 'caller and proposalId are required' });
     }
+    if (!requireAddress(res, caller, 'caller')) return;
     res.status(202).json({
       success: true,
       message: 'Cancel transaction ready.',
