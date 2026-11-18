@@ -6,6 +6,446 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added �?" 2026-10-21
+
+- multisig: `get_pending_proposals(env) -> Vec<u64>` read-only view
+  returning the IDs of all proposals whose status is `ProposalStatus::Pending`
+  (#105). Scans IDs `1..=proposal_count()` and collects matching proposals,
+  so governance UIs and monitoring bots can list pending proposals in a single
+  RPC call instead of iterating `get_proposal()` per ID. Note: O(n) scan over
+  all proposals; excludes Executed and Cancelled proposals; no TTL bump.
+
+- ci: add `.github/workflows/release.yml` to build the token, vesting, and
+  multisig WASM artifacts on `v*.*.*` tags and attach them plus
+  `sha256sums.txt` to a GitHub Release (#87).
+
+- multisig: `get_confirmations(proposal_id) -> Vec<Address>` read-only view
+  returning the owners who have confirmed a proposal (#104).
+
+### Tests — 2026-10-21
+
+- contracts/multisig/src/lib.rs: tests for `get_pending_proposals()` (#105):
+  empty list with no proposals, correct list after submits, and exclusion of
+  Executed and Cancelled proposals.
+
+### Fixed — 2026-10-21
+
+- backend/src/routes/vesting.js: `GET /api/vesting/claimable/:id` now simulates
+  `get_claimable` and returns the live on-chain amount when
+  `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are configured. It falls back
+  to the existing stub if either setting is absent; `docs/api.md` documents
+  both response shapes.
+
+- Makefile: `setup` target now installs `wasm32v1-none` instead of the
+  outdated `wasm32-unknown-unknown` target (#59).
+
+- Makefile: `build` target now uses `stellar contract build` instead of
+  `cargo build --all --target wasm32-unknown-unknown --release` (#59).
+
+- Makefile: `build-optimized` target now references
+  `target/wasm32v1-none/release/` instead of
+  `target/wasm32-unknown-unknown/release/` (#59).
+
+- Makefile: `lint` target now runs
+  `cargo clippy --all --target wasm32v1-none -- -D warnings` to match the
+  exact CI invocation, replacing `--all-targets` which diverged from CI (#59).
+
+- contracts/multisig/README.md: added `get_pending_proposals()` to the
+  function reference table, noting the O(n) scan cost and that it is
+  read-only (no TTL bump).
+
+
+### Added — 2026-10-19
+
+- docs/api.md: REST API reference for the backend (#60). One
+  section per route group (health, vesting, token, multisig) documenting
+  all 29 endpoints (the 28 listed in the issue plus `GET /api/health/ready`,
+  which exists in `health.js`) with method, path, request fields with types
+  and required flags, success status and response shape, and error responses —
+  derived directly from `backend/src/routes/*.js`. Covers the shared
+  `contractId` resolution
+  (body → query → env var), 200/202 success conventions, the `{ error }` /
+  `{ error, code }` error shapes, rate limiting, and stub-vs-live response
+  differences (including the `balance` string/number distinction). Includes
+  request/response examples per group and a full endpoint index table.
+
+- README.md: "Backend API — live data note" section now links to
+  docs/api.md.
+
+### Fixed — 2026-10-18
+
+- backend/src/routes/vesting.js: reject invalid schedule IDs before converting
+  `req.params.id` with `BigInt()`. The GET `/api/vesting/schedule/:id` route now
+  returns HTTP 400 with `{ error: 'scheduleId must be a positive integer' }` for
+  non-numeric or negative IDs instead of crashing with a 500. Added regression
+  coverage in `backend/src/routes/vesting.test.js` for `abc` and `-1` inputs.
+
+### Added — 2026-10-17
+
+- backend/src/services/stellar.js: `validateStellarAddress(addr)` helper (#132).
+  Wraps `StrKey.isValidEd25519PublicKey()` from `@stellar/stellar-sdk` and
+  returns `true` only for valid 56-character `G...` Stellar public keys.
+  Applied to every address field on the mutating routes: `POST
+  /api/vesting/schedule` (`from`, `beneficiary`, `tokenAddress`), `POST
+  /api/vesting/claim` (`beneficiary`), `POST /api/vesting/revoke`
+  (`recipient`), `POST /api/token/mint` (`to`), `POST /api/token/transfer`
+  (`from`, `to`), `POST /api/multisig/proposal` (`proposer`), and `POST
+  /api/multisig/confirm` (`owner`). Invalid addresses now return HTTP 400
+  with `{ error: 'invalid Stellar address: <field>' }` instead of a 500
+  from the SDK. New tests in `vesting.test.js`, `token.test.js`, and
+  `multisig.test.js` cover invalid address inputs.
+
+### Tests — 2026-10-17
+
+- contracts/vesting/src/lib.rs: `test_revoke_after_full_claim_no_beneficiary_transfer`
+  (#131). Covers the previously untested zero branch of `revoke()`'s
+  `if unclaimed_vested > 0` guard. Creates a 100-unit schedule, advances to
+  50% vested, claims all 50, then revokes immediately. Asserts the returned
+  unvested amount is 50, the beneficiary balance stays at 50 (no duplicate
+  payment), the treasury receives exactly 50, and the vesting contract holds
+  0. Complements the existing `test_revoke_pays_vested_to_beneficiary`
+  (non-zero path) and `test_e2e_revoke_after_partial_claim`. No contract
+  behaviour changed; the test verifies the CEI ordering assumption that a
+  fully-claimed beneficiary is not paid twice on revoke.
+
+
+### Changed — 2026-10-17
+
+- contracts/vesting/src/lib.rs: consolidate duplicate test setup helpers into
+  `mod test_helpers` (#115). Previously each of the three test modules
+  (`tests`, `e2e_token_tests`, `prop_tests`) defined its own private helpers
+  (`setup`, `new_token`, `deploy_token`, `deploy_vesting`, `dummy`). These are
+  now unified in a single `#[cfg(test)] pub(crate) mod test_helpers` at the
+  bottom of the file with clearly named functions: `deploy_vesting_with_admin`,
+  `deploy_stellar_asset_token`, `deploy_real_token`, `dummy`. All three test
+  modules import from `test_helpers`. No test logic changed; all 45 existing
+  tests continue to pass.
+
+### Added — 2026-10-17
+
+- .github/dependabot.yml: Dependabot configuration for automated dependency
+  updates (#84). Configures two ecosystems: `cargo` at the repo root (`/`) and
+  `npm` at `/backend`, both on a weekly schedule with `open-pull-requests-limit`
+  set to 5. Keeps `soroban-sdk`, `@stellar/stellar-sdk`, and all other
+  dependencies up to date automatically without manual monitoring.
+
+- contracts/vesting/src/lib.rs: `time_until_fully_vested(env, schedule_id) -> u64`
+  view function (#127). Returns `(start_time + total_duration).saturating_sub(now)`
+  — the number of seconds remaining until the schedule fully vests. Returns `0`
+  when the schedule has already reached or passed its end time. Useful for
+  client-side countdown timers and dashboards that need "time remaining" without
+  off-chain arithmetic. Read-only: no TTL bump. Four new tests:
+  `test_time_until_fully_vested_mid_schedule` (positive value before end),
+  `test_time_until_fully_vested_at_end` (0 at exactly `total_duration`),
+  `test_time_until_fully_vested_after_end` (0 past end),
+  `test_time_until_fully_vested_not_found_panics` (panics for unknown ID).
+  README Vesting API table updated.
+
+### Changed — 2026-10-17
+
+- contracts/vesting/src/lib.rs: consolidate duplicate test setup helpers into
+  `mod test_helpers` (#115). Previously each of the three test modules
+  (`tests`, `e2e_token_tests`, `prop_tests`) defined its own private helpers
+  (`setup`, `new_token`, `deploy_token`, `deploy_vesting`, `dummy`). These are
+  now unified in a single `#[cfg(test)] pub(crate) mod test_helpers` at the
+  bottom of the file with clearly named functions:
+  `deploy_vesting_with_admin`, `deploy_stellar_asset_token`, `deploy_real_token`,
+  `dummy`. All three test modules import from `test_helpers`. No test logic
+  changed; all 49 existing tests continue to pass.
+
+- backend/src/services/stellar.js: removed unused `Keypair` import (#80).
+  `Keypair` was destructured from `@stellar/stellar-sdk` on line 10 but never
+  referenced anywhere in the file, causing an ESLint `no-unused-vars` warning
+  in CI. Removed from the destructured import. All 70 backend tests pass;
+  `npm run lint` reports zero warnings for `stellar.js`.
+
+### Added — 2026-10-17
+
+- contracts/vesting/src/lib.rs: `time_until_fully_vested(env, schedule_id) -> u64`
+  view function (#127). Returns `(start_time + total_duration).saturating_sub(now)`
+  — the number of seconds remaining until the schedule fully vests. Returns `0`
+  when the schedule has already reached or passed its end time. Useful for
+  client-side countdown timers and dashboards that need "time remaining" without
+  off-chain arithmetic. Read-only: no TTL bump. Four new tests:
+  `test_time_until_fully_vested_mid_schedule` (positive value before end),
+  `test_time_until_fully_vested_at_end` (0 at exactly `total_duration`),
+  `test_time_until_fully_vested_after_end` (0 past end),
+  `test_time_until_fully_vested_not_found_panics` (panics for unknown ID).
+  README Vesting API table updated.
+
+- contracts/vesting/README.md: "Panic conditions" reference table (#91).
+  Documents every `panic_with_error!` call in the vesting contract source with
+  the function name, `VestingError` variant, numeric error code, and the
+  condition that triggers it. Covers `create_schedule`,
+  `batch_create_schedule`, `claim`, `revoke`, `transfer_beneficiary`,
+  `pause`/`unpause`/`transfer_admin`, and the read-only getters. Based
+  strictly on the source — no messages were invented. All 10 `VestingError`
+  variants (`AmountMustBePositive`, `DurationMustBePositive`,
+  `CliffExceedsDuration`, `StartPlusCliffOverflow`, `StartPlusDurationOverflow`,
+  `ScheduleNotFound`, `ScheduleNotActive`, `NothingToClaim`,
+  `ContractIsPaused`, `BatchEmpty`) are listed.
+
+### Tests — 2026-10-16
+
+- contracts/vesting/src/lib.rs: `test_create_schedule_future_start_time` (#63).
+  Verifies that when `start_time` is set to a future ledger timestamp, nothing
+  is claimable before `start_time` and the correct linear amount is claimable
+  once the ledger advances past `start_time`. Asserts `get_claimable() == 0`
+  at `start_time - 1` and `get_claimable() == 500` (50% of 1 000) at
+  `start_time + 50` with `total_duration = 100`. Calls `claim()` and asserts
+  the beneficiary balance matches. Also fixes a pre-existing duplicate test
+  definition that prevented the vesting test suite from compiling.
+
+- contracts/vesting/src/lib.rs: two new tests for `get_claimable()` on
+  terminal schedule statuses (#61).
+  - `test_get_claimable_on_completed_schedule`: fully vests and claims a
+    schedule, asserts status is `Completed`, then asserts
+    `get_claimable() == 0` (vested - claimed = 0).
+  - `test_get_claimable_on_revoked_schedule`: revokes a schedule mid-vest,
+    asserts status is `Revoked`, then asserts `get_claimable() == 0`
+    (revoke sets `claimed_amount = vested_amount` before transferring).
+
+
+
+  event with payload `(old_admin: Address, new_admin: Address)` (#101).
+  Added `EVT_ADM_XFER` constant (`symbol_short!("admXfer")`), matching the
+  vesting contract's pattern for consistency. Off-chain systems monitoring admin
+  changes now receive an on-chain signal without polling `admin()`. New test:
+  `test_event_transfer_admin` asserts the event is emitted with the correct
+  old and new admin addresses and that `admin()` returns the new admin.
+  `contracts/token/README.md` events table and `transfer_admin` doc updated.
+
+- contracts/multisig/src/lib.rs: `is_executable(env, proposal_id: u64) -> bool`
+  view function (#103). Returns `true` when the proposal's status is `Pending`
+  and `confirmation_count >= threshold`. Encapsulates the two-step
+  `get_proposal` + `get_threshold` check, making it easy for UIs and bots to
+  poll readiness without making two RPC calls or implementing the logic
+  themselves. Read-only — no TTL bump. Five new tests:
+  `test_is_executable_false_before_threshold`,
+  `test_is_executable_true_at_threshold`,
+  `test_is_executable_false_after_execution`,
+  `test_is_executable_false_after_cancel`,
+  `test_is_executable_nonexistent_panics`.
+  `contracts/multisig/README.md` updated with function entry.
+
+- scripts/create-schedule-example.js: Node.js example script that sends a
+  `POST /api/vesting/schedule` request to the backend API (#110). Uses the
+  built-in Node 18+ `fetch` — no external npm dependencies. Reads `API_URL`
+  from the environment (defaults to `http://localhost:3001`). Uses placeholder
+  Stellar addresses matching `.env.example` pattern. Exits non-zero on HTTP
+  error or network failure. Usage comment at the top of the file.
+
+- .github/CODEOWNERS: GitHub CODEOWNERS file assigning `@unajiogenyi05-hub`
+  as the reviewer for all files, with explicit patterns for `contracts/`,
+  `.github/`, `backend/`, `frontend/`, and `scripts/` (#116). Includes an
+  explanatory comment on how to add new reviewers.
+
+### Changed — 2026-10-16
+
+- .github/workflows/ci.yml: bumped `node-version` from `'20'` to `'24'` in the
+  backend and frontend jobs (#85). GitHub Actions was already forcing Node 20
+  jobs to run on Node 24 and emitting a deprecation annotation on every CI run.
+  Explicitly setting `'24'` eliminates the annotation and makes the CI
+  configuration match the runtime in use. The backend `package.json` engine
+  constraint (`>=18.0.0`) is fully compatible with Node 24.
+
+### Tests — 2026-10-16
+
+- backend/src/routes/vesting.test.js: expanded test coverage for
+  `GET /api/vesting/beneficiary/:addr` and `GET /api/vesting/count` (#76).
+  Added 9 new tests across the two describe blocks:
+  - `GET /beneficiary/:addr`: correct beneficiary address reflected in
+    response, `scheduleIds` is an array, `contractId` present, different
+    address values work, `contractId` query-param override honoured.
+  - `GET /count`: `success: true`, `count` is a number, `contractId` present,
+    `contractId` query-param override honoured.
+  All 61 backend tests pass.
+
+### Changed — 2026-10-16
+
+- backend/src/routes/vesting.js: removed unused imports `nativeToScVal`,
+  `Address`, `xdr` (from `@stellar/stellar-sdk`) and `simulateContractCall`
+  (from `../services/stellar`) (#79). These were dead-code left over from an
+  incomplete wiring of live contract calls and produced four ESLint
+  `no-unused-vars` warnings in CI. No behaviour changes; all 54 backend tests
+  still pass and `npm run lint` reports zero warnings for `vesting.js`.
+
+### Changed — 2026-10-16
+
+- contracts/token/src/lib.rs: added `///` doc comments to all 18 public
+  functions (#95). Each comment states purpose, auth requirement, panic
+  conditions, and return value. Covers `__constructor`, `mint`, `burn`,
+  `transfer`, `transfer_from`, `approve`, `pause`, `unpause`,
+  `transfer_admin`, `name`, `symbol`, `decimals`, `total_supply`, `balance`,
+  `allowance`, `is_paused`, `admin`, and `extend_ttl`. No behaviour changes;
+  all existing tests continue to pass.
+
+### Added — 2026-10-16
+
+- contracts/vesting/src/lib.rs: `get_unvested_amount(env, schedule_id) -> i128`
+  view function (#99). Returns `total_amount - vested_amount(now)`, clamped to
+  `0`. Replaces client-side computation for treasury dashboards that need to
+  display how much remains unvested. Read-only (no TTL bump). Four new tests:
+  `test_get_unvested_amount_mid_schedule_and_at_end`,
+  `test_get_unvested_amount_before_cliff`, and a conservation invariant test
+  `test_unvested_plus_claimable_plus_claimed_equals_total`. README updated.
+
+### Added — 2026-10-16 (earlier)
+
+- CODE_OF_CONDUCT.md: Contributor Covenant 2.1 added at repository root (#117).
+  Enforcement contact points to the GitHub private security reporting URL.
+  CONTRIBUTING.md updated with a "Code of Conduct" section linking to it.
+
+- docs/testnet-demo.md: "Multisig governance demo" section (#90). Covers all
+  six steps: deploy multisig with `--owners` and `--threshold 1`, transfer
+  vesting admin via `transfer_admin`, submit a `ProposalAction::Call` proposal
+  for `create_schedule`, confirm (threshold 1), execute, and verify the schedule
+  was created. CLI commands match the real function signatures in
+  `contracts/multisig/src/lib.rs`.
+
+- contracts/multisig/src/lib.rs: `test_cancel_executed_proposal_panics` (#68).
+  Submits a proposal, confirms to threshold, executes it, then asserts that
+  calling `cancel()` on the now-Executed proposal panics with
+  `"proposal not pending"`. Mirrors the existing `test_execute_twice_panics`
+  pattern for the cancel path.
+
+- backend/src/routes/health.js: `GET /api/health/ready` endpoint (#119).
+  Checks `VESTING_CONTRACT_ID`, `TOKEN_CONTRACT_ID`, and
+  `MULTISIG_CONTRACT_ID` environment variables. Returns 200 with
+  `{ ready: true, contracts: { vesting, token, multisig } }` when at least
+  one contract ID is configured; returns 503 with `ready: false` when none
+  are set. Four new tests in `health.test.js` cover the 503 (none set), 200
+  (one set), 200 (all set), and per-contract boolean shape cases.
+
+### Added — 2026-10-16 (earlier)
+
+- contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
+  that `vested_amount` uses integer (floor) division
+  (`elapsed * total_amount / total_duration`), explains dust accumulation until
+  schedule completion, includes a worked example (99-token / 100-second
+  schedule), and adds integrator notes. Linked from the `vested_amount` source
+  comment.
+
+- contracts/vesting/src/lib.rs: inline `// Note:` comment in `vested_amount()`
+  (#96). Points to the README "Rounding behavior" section and explains that the
+  fractional remainder (dust) is released only when `elapsed >= total_duration`.
+
+### Changed
+
+- contracts/token/src/lib.rs, contracts/vesting/src/lib.rs: extract private `get_admin_address(env)` helper (#298). Both `require_admin()` and the public `admin()`/`get_admin()` functions now delegate the storage read to this single helper, eliminating duplicated `env.storage().instance().get(&ADMIN).expect("not initialized")` patterns. Closes #298.
+
+### Added
+
+- contracts/vesting: `total_claimable_for_beneficiary(env, beneficiary) -> i128` read-only view (#302). Returns the aggregate vested-but-unclaimed amount across all `Active` schedules for a given beneficiary, without the caller needing to iterate schedule IDs. `Revoked` and `Completed` schedules are excluded. No write footprint. Five new tests: multiple active schedules, mix of active/revoked/completed, no schedules (returns 0), before cliff (returns 0), after partial claim. `contracts/vesting/README.md` updated. Closes #302.
+
+- docs/contributing-contracts.md: guide covering all five steps to add a new Soroban contract to the workspace — crate creation and workspace registration, `soroban-sdk` dependency with `testutils` feature flag, writing a first test, CI integration (automatic via workspace), and README architecture diagram update (#301). Linked from CONTRIBUTING.md. Closes #301.
+
+### Added — 2026-10-15
+
+- contracts/multisig: `confirm()` now includes `confirmation_count` in its
+  event payload (#129).  The `("confirmed",)` event data tuple changes from
+  `(proposal_id, owner)` to `(proposal_id, owner, confirmation_count)`.
+  Off-chain monitors can now track confirmation progress from the event stream
+  alone without making a separate `get_proposal()` call.  New test:
+  `test_confirmed_event_includes_count` asserts count = 1 after the first
+  confirmation and count = 2 after the second.  Updated
+  `contracts/multisig/README.md` events table and `confirm()` function docs.
+
+- contracts/vesting: `get_claimed_by_beneficiary(env, beneficiary) -> i128`
+  view function (#128).  Sums `claimed_amount` across all schedules for the
+  given beneficiary in one call, useful for dashboards.  Returns 0 for
+  addresses with no schedules.  Uses `saturating_add` to avoid overflow.
+  Read-only; does not extend any TTL.  Three new tests:
+  `test_total_claimed_no_schedules`, `test_total_claimed_single_schedule`,
+  `test_total_claimed_multiple_schedules`.  Updated `contracts/vesting/README.md`
+  with function reference.
+
+- contracts/vesting: `transfer_beneficiary(env, schedule_id, new_beneficiary)`
+  function (#123).  Lets the current beneficiary atomically reassign a vesting
+  schedule to a new address, preserving all vesting parameters and
+  `claimed_amount`.  Requires: current beneficiary auth, schedule `Active`,
+  contract not paused.  Updates both `BeneficiarySchedules` index entries
+  (removes from old, appends to new) and emits `("benXfer",)` →
+  `(schedule_id, old_beneficiary, new_beneficiary)`.  Five new tests:
+  `test_transfer_beneficiary_success` (new beneficiary claims, old gets
+  nothing), `test_transfer_beneficiary_preserves_claimed_amount` (history
+  preserved), `test_transfer_beneficiary_revoked_panics`,
+  `test_transfer_beneficiary_auth_failure`,
+  `test_transfer_beneficiary_index_consistency_multiple` (index correct after
+  mid-list transfer).  Updated `contracts/vesting/README.md` functions, events
+  table, and persistent storage TTL table.
+
+- backend/src/routes/token.js: `GET /api/token/balance/:addr` now calls
+  `simulateContractCall` with method `balance` when `TOKEN_CONTRACT_ID` and
+  `SOURCE_SECRET_KEY` are set (#130).  Encodes the address argument via
+  `nativeToScVal(addr, { type: 'address' })`, decodes the `i128` result via
+  `scValToNative`, and returns `balance` as a string.  Validates the address
+  with the `G[A-Z2-7]{55}` regex and returns 400 for bad inputs.  Falls back
+  to the existing stub (balance: 0, note field) when either env var is absent.
+  Updated `backend/src/routes/token.test.js` with five new assertions: stub
+  when `SOURCE_SECRET_KEY` absent, stub has `note` field, live call returns
+  parsed balance as string, invalid address returns 400, RPC error propagates
+  to 500.
+
+- contracts/vesting: `("benXfer",)` event constant `EVT_BEN_XFER` added.
+
+### Added
+
+- .pre-commit-config.yaml: pre-commit hook configuration running `cargo fmt --all -- --check` on Rust files and `cd backend && npm run lint` on JavaScript files (#299). Install with `pip install pre-commit && pre-commit install`. Closes #299.
+
+### Added — 2026-10-15
+
+- contracts/vesting: `total_claimable_for_beneficiary(env, beneficiary) -> i128` read-only view (#302). Returns the aggregate vested-but-unclaimed amount across all `Active` schedules for a given beneficiary, without the caller needing to iterate schedule IDs. `Revoked` and `Completed` schedules are excluded. No write footprint. Five new tests: multiple active schedules, mix of active/revoked/completed, no schedules (returns 0), before cliff (returns 0), after partial claim. `contracts/vesting/README.md` updated. Closes #302.
+
+- contracts/vesting: `batch_create_schedule(env, params: Vec<CreateScheduleParams>) -> Vec<u64>`
+  (#122). Creates multiple vesting schedules atomically in a single transaction.
+  Requires admin auth; contract must not be paused; `params` must be non-empty
+  (`VestingError::BatchEmpty` otherwise). Delegates to the existing
+  `create_schedule_internal` helper so per-schedule validation (amount > 0,
+  duration > 0, cliff ≤ duration, overflow guards) applies to every entry.
+  Because the function runs inside a single Soroban transaction, any validation
+  failure rolls back all state changes — no partial batches are possible.
+  Returns a `Vec<u64>` of newly created schedule IDs in input order.
+  New tests in `contracts/vesting/src/lib.rs`:
+  `test_batch_create_schedule_three` (3-schedule batch, ID order, token
+  conservation, beneficiary schedule lists), `test_batch_token_conservation`
+  (deposits, full-vest claim, conservation), `test_batch_empty_panics`,
+  `test_batch_all_or_nothing_invalid_amount`, `test_batch_blocked_when_paused`.
+
+- contracts/vesting: `VestingError` typed error enum (#124).
+  `#[contracterror]` enum replaces all bare `panic!()` strings in the vesting
+  contract. Variants: `AmountMustBePositive = 1`, `DurationMustBePositive = 2`,
+  `CliffExceedsDuration = 3`, `StartPlusCliffOverflow = 4`,
+  `StartPlusDurationOverflow = 5`, `ScheduleNotFound = 6`,
+  `ScheduleNotActive = 7`, `NothingToClaim = 8`, `ContractIsPaused = 9`,
+  `BatchEmpty = 10`. All `panic!()` calls replaced with `panic_with_error!`.
+  Callers receive a stable `u32` error code instead of matching on string
+  messages. All existing `#[should_panic]` tests updated to match; all pass.
+
+- docs/security-model.md (#120). Per-function authorization model and threat
+  analysis covering all three contracts. Six sections: (1) trust hierarchy
+  (admin, multisig owners, beneficiary, anyone); (2) per-function auth table
+  for vesting, token, and multisig contracts; (3) pause semantics with
+  rationale for each gated/ungated function; (4) CEI compliance summary for
+  `claim`, `revoke`, and multisig `execute`; (5) known limitations (no upgrade
+  mechanism, floor-division rounding, no audit, no mainnet deployment,
+  unbounded beneficiary list); (6) attack surface summary cross-referenced with
+  `SECURITY.md`. Written strictly from source code and existing documentation.
+
+- backend/src/error-handler.test.js (#114): Jest tests asserting that all error
+  responses have the standardised `{ error: string, code: string }` envelope on
+  both 400 (route-level validation) and 500 (unhandled error) paths.
+
+### Changed — 2026-10-15
+
+- backend/src/index.js (#114): centralised error handler middleware now always
+  returns `{ error: string, code: string }`. `code` is taken from `err.code`
+  if set, otherwise defaults to `'INTERNAL_ERROR'` for 500 responses or
+  `'REQUEST_ERROR'` for other status codes. The raw stack trace continues to be
+  logged server-side only and is never sent to the client.
+
+- README.md: "Security" section now links to the new
+  `docs/security-model.md` document (#120).
 
 ### Added — 2026-11-18
 
