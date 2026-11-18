@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — 2026-11-18
+
+- CI: pinned the `stellar/stellar-cli` GitHub Actions step to the
+  immutable commit SHA `300aaf69ab100536678bdb641428b06f06b318ea`
+  (`stellar/stellar-cli@v28.0.0`) for supply-chain security (#274).
+
 ### Added — 2026-10-07
 
 - Testnet deployment: token contract `CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH` and
