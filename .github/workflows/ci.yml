@@ -49,7 +49,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install stellar-cli
-        uses: stellar/stellar-cli@v28.0.0
+        # Pin to an immutable commit SHA for supply-chain security.
+        uses: stellar/stellar-cli@300aaf69ab100536678bdb641428b06f06b318ea # v28.0.0
 
       - name: Build WASM
         run: stellar contract build

@@ -449,10 +449,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-11-18
 
-- Backend: wired GET /api/multisig/owners and GET /api/multisig/threshold
-  to live `simulateContractCall` calls (`get_owners`, `get_threshold`)
-  when `MULTISIG_CONTRACT_ID` is set, with stub fallbacks preserved
-  otherwise (#271).
+- Makefile: added `make check-env` target that validates
+  `VESTING_CONTRACT_ID`, `TOKEN_CONTRACT_ID` and `MULTISIG_CONTRACT_ID`
+  are set before deploying, failing fast with a clear message instead of
+  a cryptic stellar-cli error. `deploy-testnet` now depends on
+  `check-env`; documented in CONTRIBUTING.md (#273).
+
+### Changed — 2026-11-18
+
+- CI: pinned the `stellar/stellar-cli` GitHub Actions step to the
+  immutable commit SHA `300aaf69ab100536678bdb641428b06f06b318ea`
+  (`stellar/stellar-cli@v28.0.0`) for supply-chain security (#274).
 
 ### Added — 2026-10-07
 
