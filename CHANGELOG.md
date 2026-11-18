@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-11-18
+
+- Backend: wired GET /api/multisig/owners and GET /api/multisig/threshold
+  to live `simulateContractCall` calls (`get_owners`, `get_threshold`)
+  when `MULTISIG_CONTRACT_ID` is set, with stub fallbacks preserved
+  otherwise (#271).
+
 ### Added — 2026-10-07
 
 - Testnet deployment: token contract `CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH` and
