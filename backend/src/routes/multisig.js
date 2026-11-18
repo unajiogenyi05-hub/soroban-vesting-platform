@@ -19,14 +19,6 @@ const logger = require('../logger');
 const { validateStellarAddress } = require('../services/stellar');
 
 const router = Router();
-const CONTRACT_ID = process.env.MULTISIG_CONTRACT_ID || '';
-
-function contractIdMiddleware(req, res, next) {
-  const id = req.body?.contractId || req.query?.contractId || CONTRACT_ID;
-  if (!id) return res.status(400).json({ error: 'contractId is required' });
-  req.contractId = id;
-  next();
-}
 
 function requireAddress(res, value, field) {
   if (!value) {
