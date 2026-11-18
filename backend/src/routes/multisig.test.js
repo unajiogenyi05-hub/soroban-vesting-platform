@@ -1,6 +1,7 @@
 'use strict';
 
 const request = require('supertest');
+const { simulateContractCall } = require('../services/stellar');
 
 jest.mock('../services/stellar', () => ({
   simulateContractCall: jest.fn().mockResolvedValue({ result: 'stub' }),
@@ -11,6 +12,8 @@ jest.mock('../services/stellar', () => ({
 process.env.MULTISIG_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
 
 const app = require('../index');
+
+const MULTISIG_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
 
 describe('Multisig routes', () => {
   describe('POST /api/multisig/proposal', () => {
@@ -101,6 +104,80 @@ describe('Multisig routes', () => {
       const res = await request(app).get('/api/multisig/threshold');
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty('threshold');
+    });
+  });
+
+  describe('GET /api/multisig/owners (live)', () => {
+    beforeEach(() => {
+      simulateContractCall.mockReset();
+    });
+
+    it('returns live owners from the get_owners contract call', async () => {
+      simulateContractCall.mockResolvedValue({
+        result: {
+          returnValue: {
+            vec: () => [
+              { address: () => 'GDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADUMMY1' },
+              { address: () => 'GDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADUMMY2' },
+            ],
+          },
+        },
+      });
+
+      const res = await request(app).get('/api/multisig/owners');
+
+      expect(simulateContractCall).toHaveBeenCalledWith({
+        contractId: MULTISIG_CONTRACT_ID,
+        method: 'get_owners',
+        args: [],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.owners).toEqual([
+        'GDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADUMMY1',
+        'GDUMMYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADUMMY2',
+      ]);
+    });
+
+    it('degrades to an empty owners list when the result is unparseable', async () => {
+      simulateContractCall.mockResolvedValue({ result: { returnValue: 'unparseable' } });
+
+      const res = await request(app).get('/api/multisig/owners');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.owners).toEqual([]);
+    });
+  });
+
+  describe('GET /api/multisig/threshold (live)', () => {
+    beforeEach(() => {
+      simulateContractCall.mockReset();
+    });
+
+    it('returns live threshold from the get_threshold contract call', async () => {
+      simulateContractCall.mockResolvedValue({
+        result: { returnValue: { u32: () => 3 } },
+      });
+
+      const res = await request(app).get('/api/multisig/threshold');
+
+      expect(simulateContractCall).toHaveBeenCalledWith({
+        contractId: MULTISIG_CONTRACT_ID,
+        method: 'get_threshold',
+        args: [],
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.threshold).toBe(3);
+    });
+
+    it('degrades to threshold 0 when the result is unparseable', async () => {
+      simulateContractCall.mockResolvedValue({ result: { returnValue: { not: 'a-scval' } } });
+
+      const res = await request(app).get('/api/multisig/threshold');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.threshold).toBe(0);
     });
   });
 });
