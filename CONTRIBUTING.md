@@ -105,6 +105,22 @@ See [`.env.example`(../.env.example) for all variables with inline comments. Key
 | `TOKEN_CONTRACT_ID` | Deployed token contract ID (set after deploy) |
 | `MULTISIG_CONTRACT_ID` | Deployed multisig contract ID (set after deploy) |
 
+### Validating environment before deploy
+
+`make deploy-testnet` depends on `make check-env`, which fails fast with a
+clear message if any of `VESTING_CONTRACT_ID`, `TOKEN_CONTRACT_ID` or
+`MULTISIG_CONTRACT_ID` are unset — preventing cryptic contract deploy
+failures downstream:
+
+```bash
+# Source .env, then validate required variables before deploying
+set -a; . .env; set +a
+make check-env
+make deploy-testnet
+```
+
+`make check-env` exits non-zero when a required variable is missing.
+
 ---
 
 ## Running All Tests

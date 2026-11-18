@@ -447,6 +447,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README.md: "Security" section now links to the new
   `docs/security-model.md` document (#120).
 
+### Added — 2026-11-18
+
+- Makefile: added `make check-env` target that validates
+  `VESTING_CONTRACT_ID`, `TOKEN_CONTRACT_ID` and `MULTISIG_CONTRACT_ID`
+  are set before deploying, failing fast with a clear message instead of
+  a cryptic stellar-cli error. `deploy-testnet` now depends on
+  `check-env`; documented in CONTRIBUTING.md (#273).
+
 ### Added — 2026-10-07
 
 - Testnet deployment: token contract `CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH` and
