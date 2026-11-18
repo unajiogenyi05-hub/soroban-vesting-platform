@@ -219,6 +219,9 @@ soroban-vesting-platform/
 └── .github/workflows/  # CI pipeline
 ```
 
+For a step-by-step guide on adding a new contract to the workspace, see
+[docs/contributing-contracts.md](docs/contributing-contracts.md).
+
 ---
 
 ## Code of Conduct
