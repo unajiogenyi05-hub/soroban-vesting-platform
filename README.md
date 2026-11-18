@@ -99,6 +99,7 @@ soroban-vesting-platform/
 │   └── demo-testnet.sh # End-to-end testnet lifecycle demo
 ├── docs/
 │   ├── architecture.md
+│   ├── faq.md            # Common integration questions answered
 │   └── testnet-demo.md   # Manual walkthrough
 ├── .github/workflows/ci.yml
 ├── .env.example
@@ -144,9 +145,11 @@ chmod +x scripts/demo-testnet.sh
 cd backend && npm install && npm start
 ```
 
-> **Note:** `make deploy-testnet` and `scripts/deploy.sh` are out of date
-> (old build target, no constructor arguments). Use the `stellar contract`
-> commands below or `docs/testnet-demo.md` instead.
+> **Note:** `make deploy-testnet` is a convenience wrapper around `scripts/deploy.sh`.
+> Constructor arguments must be passed after `--` (e.g. `-- --admin "$ADMIN"`).
+> See [Deploy to Testnet](#deploy-to-testnet) for the full commands with all
+> required constructor arguments, or run `scripts/demo-testnet.sh` for an
+> end-to-end demo.
 
 ---
 
@@ -216,6 +219,21 @@ that walks through:
 
 ---
 
+## FAQ
+
+See [docs/faq.md](docs/faq.md) for answers to common integration questions,
+including:
+
+- How the cliff + linear schedule works and what the rounding behaviour is
+- Why `revoke()` is not blocked by pause
+- Why `execute()` in the multisig is permissionless
+- How to use the multisig as the vesting admin
+- What `extend_ttl()` does and when to call it
+- How to restore an archived contract entry
+- Whether this is safe to use on mainnet
+
+---
+
 ## Vesting schedule lifecycle
 
 ```
@@ -274,6 +292,7 @@ create_schedule(params)
 | `get_claimable(id)` | — | Read-only: claimable amount now |
 | `get_beneficiary_schedules(beneficiary)` | — | Read-only: schedule IDs for an address |
 | `schedule_count()` / `get_admin()` / `is_paused()` | — | Read-only state queries |
+| `time_until_fully_vested(id)` | — | Read-only: seconds remaining until schedule fully vests; 0 if already complete |
 
 ### Multisig
 
@@ -287,7 +306,7 @@ create_schedule(params)
 | `cancel(caller, proposal_id)` | proposer | Cancel proposal |
 | `extend_ttl()` | anyone | Permissionless instance keep-alive |
 | `get_proposal(id)` / `get_owners()` / `get_threshold()` | — | Read-only queries |
-| `proposal_count()` / `has_confirmed(id, owner)` / `is_owner(address)` | — | Read-only queries |
+| `proposal_count()` / `has_confirmed(id, owner)` / `get_confirmations(id)` / `is_owner(address)` | — | Read-only queries |
 
 `ProposalAction` variants:
 
@@ -376,6 +395,25 @@ procedure, and how to tune the constants for a production deployment.
 
 ---
 
+## Releases
+
+Push a semantic-version tag to build every contract and publish a GitHub
+Release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release workflow runs the formatting, clippy, and test gates, builds with
+`stellar contract build`, verifies that exactly three WASM artifacts exist, and
+attaches `token.wasm`, `vesting.wasm`, `multisig.wasm`, and `sha256sums.txt` to
+the release. Downloaders can verify a build with:
+
+```bash
+sha256sum -c sha256sums.txt
+```
+
 ## Development
 
 ```bash
@@ -409,6 +447,9 @@ SOURCE_SECRET_KEY=<Stellar secret key for transaction signing>
 
 Without these values the API returns documented stub responses so the frontend
 can be developed independently of a live deployment.
+
+Full endpoint reference — request bodies, query params, response shapes, and
+error codes for every route — is in [docs/api.md](docs/api.md).
 
 ---
 
