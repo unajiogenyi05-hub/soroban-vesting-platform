@@ -18,21 +18,11 @@ const { Router } = require('express');
 const { nativeToScVal, Address, xdr } = require('@stellar/stellar-sdk');
 const { simulateContractCall } = require('../services/stellar');
 const logger = require('../logger');
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.VESTING_CONTRACT_ID || '',
+);
 
 const router = Router();
-
-const CONTRACT_ID = process.env.VESTING_CONTRACT_ID || '';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function contractIdMiddleware(req, res, next) {
-  const id = req.body?.contractId || req.query?.contractId || CONTRACT_ID;
-  if (!id) {
-    return res.status(400).json({ error: 'contractId is required' });
-  }
-  req.contractId = id;
-  next();
-}
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 

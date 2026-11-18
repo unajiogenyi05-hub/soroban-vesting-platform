@@ -16,16 +16,11 @@
 
 const { Router } = require('express');
 const logger = require('../logger');
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.MULTISIG_CONTRACT_ID || '',
+);
 
 const router = Router();
-const CONTRACT_ID = process.env.MULTISIG_CONTRACT_ID || '';
-
-function contractIdMiddleware(req, res, next) {
-  const id = req.body?.contractId || req.query?.contractId || CONTRACT_ID;
-  if (!id) return res.status(400).json({ error: 'contractId is required' });
-  req.contractId = id;
-  next();
-}
 
 router.post('/proposal', contractIdMiddleware, async (req, res, next) => {
   try {

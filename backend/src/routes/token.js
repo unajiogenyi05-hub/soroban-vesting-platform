@@ -18,14 +18,9 @@ const { Router } = require('express');
 const logger = require('../logger');
 
 const router = Router();
-const CONTRACT_ID = process.env.TOKEN_CONTRACT_ID || '';
-
-function contractIdMiddleware(req, res, next) {
-  const id = req.body?.contractId || req.query?.contractId || CONTRACT_ID;
-  if (!id) return res.status(400).json({ error: 'contractId is required' });
-  req.contractId = id;
-  next();
-}
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.TOKEN_CONTRACT_ID || '',
+);
 
 router.get('/info', contractIdMiddleware, async (req, res, next) => {
   try {
