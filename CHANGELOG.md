@@ -330,6 +330,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#96). Points to the README "Rounding behavior" section and explains that the
   fractional remainder (dust) is released only when `elapsed >= total_duration`.
 
+### Changed
+
+- contracts/token/src/lib.rs, contracts/vesting/src/lib.rs: extract private `get_admin_address(env)` helper (#298). Both `require_admin()` and the public `admin()`/`get_admin()` functions now delegate the storage read to this single helper, eliminating duplicated `env.storage().instance().get(&ADMIN).expect("not initialized")` patterns. Closes #298.
+
 ### Added — 2026-10-15
 
 - contracts/multisig: `confirm()` now includes `confirmation_count` in its
