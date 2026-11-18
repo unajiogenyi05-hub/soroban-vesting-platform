@@ -5,7 +5,7 @@ CONTRACTS := vesting multisig token
 NETWORK   ?= testnet
 SOURCE    ?= $(shell grep SOURCE_ACCOUNT .env 2>/dev/null | cut -d= -f2)
 
-.PHONY: help setup build build-optimized test fmt lint clean \
+.PHONY: help setup build build-optimized test fmt lint clean check-env \
         deploy-testnet deploy-mainnet fund \
         backend-install backend-dev backend-start backend-test
 
@@ -65,6 +65,17 @@ lint:
 	cargo fmt --all -- --check
 	cargo clippy --all --all-targets -- -D warnings
 
+# ── Environment ──────────────────────────────────────────────────────────────
+
+# Verify required environment variables are set before deploying.
+# Source .env first (make does not read .env automatically), e.g.:
+#   set -a; . .env; set +a; make check-env
+check-env:
+	@test -n "$(VESTING_CONTRACT_ID)" || (echo "Error: VESTING_CONTRACT_ID is not set"; exit 1)
+	@test -n "$(TOKEN_CONTRACT_ID)" || (echo "Error: TOKEN_CONTRACT_ID is not set"; exit 1)
+	@test -n "$(MULTISIG_CONTRACT_ID)" || (echo "Error: MULTISIG_CONTRACT_ID is not set"; exit 1)
+	@echo "All required env vars set."
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	cargo clean
@@ -73,7 +84,7 @@ clean:
 fund:
 	./scripts/fund.sh $(SOURCE)
 
-deploy-testnet:
+deploy-testnet: check-env
 	@for c in $(CONTRACTS); do \
 	  ./scripts/deploy.sh $$c testnet; \
 	done
