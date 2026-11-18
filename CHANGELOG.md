@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- docs/contributing-contracts.md: guide covering all five steps to add a new Soroban contract to the workspace — crate creation and workspace registration, `soroban-sdk` dependency with `testutils` feature flag, writing a first test, CI integration (automatic via workspace), and README architecture diagram update (#301). Linked from CONTRIBUTING.md. Closes #301.
+
 ### Added — 2026-10-15
 
 - contracts/vesting: `batch_create_schedule(env, params: Vec<CreateScheduleParams>) -> Vec<u64>`
