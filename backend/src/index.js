@@ -55,11 +55,15 @@ app.use((req, res) => {
 });
 
 // ── Error handler ─────────────────────────────────────────────────────────
+// Always returns { error: string, code: string } so API clients can reliably
+// distinguish error types without matching on HTTP status alone.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   logger.error(err.stack);
-  res.status(err.status || 500).json({
+  const status = err.status || 500;
+  res.status(status).json({
     error: err.message || 'Internal server error',
+    code: err.code || (status === 500 ? 'INTERNAL_ERROR' : 'REQUEST_ERROR'),
   });
 });
 
