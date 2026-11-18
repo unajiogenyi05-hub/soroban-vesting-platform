@@ -9,8 +9,8 @@
  * POST /api/multisig/revoke-confirm    — revoke a confirmation
  * POST /api/multisig/execute           — execute a ready proposal
  * POST /api/multisig/cancel            — cancel a proposal
- * GET  /api/multisig/owners            — list current owners
- * GET  /api/multisig/threshold         — get current threshold
+ * GET  /api/multisig/owners            — list current owners (live when MULTISIG_CONTRACT_ID is set)
+ * GET  /api/multisig/threshold         — get current threshold (live when MULTISIG_CONTRACT_ID is set)
  * GET  /api/multisig/count             — proposal count
  */
 
@@ -30,6 +30,27 @@ function requireAddress(res, value, field) {
     return false;
   }
   return true;
+}
+
+/**
+ * Parse the ScVal returned by simulateContractCall into plain JS values.
+ * Tolerates both host ScVal instances (`.u32()` / `.vec()` / `.address()`)
+ * and raw values so the logic stays testable against a mocked service.
+ */
+function parseScVal(returnValue) {
+  if (returnValue == null) return undefined;
+  try {
+    if (typeof returnValue.u32 === 'function') return returnValue.u32();
+    if (typeof returnValue.vec === 'function') {
+      return returnValue.vec().map((item) => {
+        if (typeof item.address === 'function') return item.address().toString();
+        return item;
+      });
+    }
+  } catch (err) {
+    // Fall through to returning the raw value below.
+  }
+  return returnValue;
 }
 
 router.post('/proposal', contractIdMiddleware, async (req, res, next) => {
@@ -134,6 +155,16 @@ router.post('/cancel', contractIdMiddleware, async (req, res, next) => {
 
 router.get('/owners', contractIdMiddleware, async (req, res, next) => {
   try {
+    if (HAS_LIVE_CONTRACT) {
+      const sim = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'get_owners',
+        args: [],
+      });
+      const parsed = parseScVal(sim.result?.returnValue);
+      const owners = Array.isArray(parsed) ? parsed : [];
+      return res.json({ success: true, data: { owners, contractId: req.contractId } });
+    }
     res.json({ success: true, data: { owners: [], contractId: req.contractId } });
   } catch (err) {
     next(err);
@@ -142,6 +173,16 @@ router.get('/owners', contractIdMiddleware, async (req, res, next) => {
 
 router.get('/threshold', contractIdMiddleware, async (req, res, next) => {
   try {
+    if (HAS_LIVE_CONTRACT) {
+      const sim = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'get_threshold',
+        args: [],
+      });
+      const parsed = parseScVal(sim.result?.returnValue);
+      const threshold = typeof parsed === 'number' ? parsed : 0;
+      return res.json({ success: true, data: { threshold, contractId: req.contractId } });
+    }
     res.json({ success: true, data: { threshold: 0, contractId: req.contractId } });
   } catch (err) {
     next(err);

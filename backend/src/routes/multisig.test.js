@@ -1,6 +1,7 @@
 'use strict';
 
 const request = require('supertest');
+const { simulateContractCall } = require('../services/stellar');
 
 const VALID_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
@@ -14,6 +15,8 @@ jest.mock('../services/stellar', () => ({
 process.env.MULTISIG_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
 
 const app = require('../index');
+
+const MULTISIG_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
 
 describe('Multisig routes', () => {
   describe('POST /api/multisig/proposal', () => {
