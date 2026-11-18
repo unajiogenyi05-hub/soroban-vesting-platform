@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- contracts/vesting: `total_claimable_for_beneficiary(env, beneficiary) -> i128` read-only view (#302). Returns the aggregate vested-but-unclaimed amount across all `Active` schedules for a given beneficiary, without the caller needing to iterate schedule IDs. `Revoked` and `Completed` schedules are excluded. No write footprint. Five new tests: multiple active schedules, mix of active/revoked/completed, no schedules (returns 0), before cliff (returns 0), after partial claim. `contracts/vesting/README.md` updated. Closes #302.
+
 - docs/contributing-contracts.md: guide covering all five steps to add a new Soroban contract to the workspace — crate creation and workspace registration, `soroban-sdk` dependency with `testutils` feature flag, writing a first test, CI integration (automatic via workspace), and README architecture diagram update (#301). Linked from CONTRIBUTING.md. Closes #301.
 
 ### Added — 2026-10-15

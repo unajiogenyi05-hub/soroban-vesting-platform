@@ -155,6 +155,22 @@ if no schedules exist. Read-only; does not extend TTL.
 
 ---
 
+### `total_claimable_for_beneficiary(env, beneficiary: Address) -> i128`
+
+Returns the total vested-but-unclaimed amount across all `Active` schedules
+for `beneficiary` at the current ledger timestamp. Schedules with status
+`Revoked` or `Completed` are excluded.
+
+This is a pure read-only view: no token transfers occur and no TTL is
+extended. Use it to build a "claim all" dashboard without iterating schedule
+IDs on the client side.
+
+Returns 0 if the beneficiary has no schedules or none are `Active`.
+
+Authorization: none.
+
+---
+
 ### `get_admin(env) -> Address`
 
 Returns the current admin address. Read-only; does not extend TTL.
