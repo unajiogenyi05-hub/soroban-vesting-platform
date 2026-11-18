@@ -253,10 +253,7 @@ impl TokenContract {
     }
 
     pub fn admin(env: Env) -> Address {
-        env.storage()
-            .instance()
-            .get(&ADMIN)
-            .expect("not initialized")
+        Self::get_admin_address(&env)
     }
 
     /// Extend the contract instance TTL to `INSTANCE_BUMP_LEDGERS`.
@@ -280,13 +277,15 @@ impl TokenContract {
             .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
     }
 
-    fn require_admin(env: &Env) {
-        let admin: Address = env
-            .storage()
+    fn get_admin_address(env: &Env) -> Address {
+        env.storage()
             .instance()
             .get(&ADMIN)
-            .expect("not initialized");
-        admin.require_auth();
+            .expect("not initialized")
+    }
+
+    fn require_admin(env: &Env) {
+        Self::get_admin_address(env).require_auth();
     }
 
     fn require_not_paused(env: &Env) {

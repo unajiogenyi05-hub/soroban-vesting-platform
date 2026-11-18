@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- contracts/token/src/lib.rs, contracts/vesting/src/lib.rs: extract private `get_admin_address(env)` helper (#298). Both `require_admin()` and the public `admin()`/`get_admin()` functions now delegate the storage read to this single helper, eliminating duplicated `env.storage().instance().get(&ADMIN).expect("not initialized")` patterns. Closes #298.
+
 ### Added — 2026-10-15
 
 - contracts/vesting: `batch_create_schedule(env, params: Vec<CreateScheduleParams>) -> Vec<u64>`
