@@ -67,6 +67,29 @@ open frontend/index.html
 npx serve frontend/
 ```
 
+### 5. Pre-commit hooks (optional but recommended)
+
+Pre-commit hooks run `cargo fmt --check` and ESLint automatically before each
+commit, catching formatting and lint issues locally without a CI round-trip.
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+After installation, every `git commit` will run the hooks against staged files.
+To run all hooks against the whole repository at once:
+
+```bash
+pre-commit run --all-files
+```
+
+To skip the hooks for a single commit (e.g. a WIP checkpoint):
+
+```bash
+git commit --no-verify -m "wip: ..."
+```
+
 ---
 
 ## Environment Variables

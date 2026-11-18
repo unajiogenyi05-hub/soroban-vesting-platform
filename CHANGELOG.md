@@ -379,7 +379,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - contracts/vesting: `("benXfer",)` event constant `EVT_BEN_XFER` added.
 
+### Added
+
+- .pre-commit-config.yaml: pre-commit hook configuration running `cargo fmt --all -- --check` on Rust files and `cd backend && npm run lint` on JavaScript files (#299). Install with `pip install pre-commit && pre-commit install`. Closes #299.
+
 ### Added — 2026-10-15
+
+- contracts/vesting: `total_claimable_for_beneficiary(env, beneficiary) -> i128` read-only view (#302). Returns the aggregate vested-but-unclaimed amount across all `Active` schedules for a given beneficiary, without the caller needing to iterate schedule IDs. `Revoked` and `Completed` schedules are excluded. No write footprint. Five new tests: multiple active schedules, mix of active/revoked/completed, no schedules (returns 0), before cliff (returns 0), after partial claim. `contracts/vesting/README.md` updated. Closes #302.
 
 - contracts/vesting: `batch_create_schedule(env, params: Vec<CreateScheduleParams>) -> Vec<u64>`
   (#122). Creates multiple vesting schedules atomically in a single transaction.
