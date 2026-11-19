@@ -273,6 +273,9 @@ See [docs/ttl.md](../../docs/ttl.md).
 
 ## Events
 
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
+
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("submitted",)` | `(id, proposer)` | `submit` |

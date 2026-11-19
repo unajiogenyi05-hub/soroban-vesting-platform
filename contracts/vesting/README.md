@@ -286,6 +286,9 @@ See [docs/ttl.md](../../docs/ttl.md).
 
 ## Events
 
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
+
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("created",)` | `(id, beneficiary, total_amount, token_address)` | `create_schedule` |
@@ -294,6 +297,7 @@ See [docs/ttl.md](../../docs/ttl.md).
 | `("paused",)` | `()` | `pause` |
 | `("unpaused",)` | `()` | `unpause` |
 | `("admXfer",)` | `(old_admin, new_admin)` | `transfer_admin` |
+| `("benXfer",)` | `(schedule_id, old_beneficiary, new_beneficiary)` | `transfer_beneficiary` |
 
 ---
 

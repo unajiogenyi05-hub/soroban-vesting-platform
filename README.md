@@ -99,6 +99,7 @@ soroban-vesting-platform/
 │   └── demo-testnet.sh # End-to-end testnet lifecycle demo
 ├── docs/
 │   ├── architecture.md
+│   ├── events.md         # Every contract event: topics, data, emitter
 │   ├── faq.md            # Common integration questions answered
 │   └── testnet-demo.md   # Manual walkthrough
 ├── .github/workflows/ci.yml
@@ -216,6 +217,14 @@ that walks through:
 2. Deploying both contracts
 3. Minting tokens and creating a vesting schedule
 4. Claiming vested tokens as the beneficiary
+
+---
+
+## Events
+
+See [docs/events.md](docs/events.md) for every event the contracts publish,
+with topic tuples, data types, the emitting function and a `getEvents` RPC
+filter example for indexers.
 
 ---
 
