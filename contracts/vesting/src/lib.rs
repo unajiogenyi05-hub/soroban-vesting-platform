@@ -13,8 +13,6 @@
 //! ```
 
 #![no_std]
-#![allow(deprecated)]
-#![allow(clippy::needless_borrows_for_generic_args)]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,

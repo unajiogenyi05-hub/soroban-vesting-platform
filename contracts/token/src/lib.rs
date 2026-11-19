@@ -19,7 +19,6 @@
 //! Persistent Balance and Allowance entries are bumped on every write.
 
 #![no_std]
-#![allow(deprecated)]
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol,
