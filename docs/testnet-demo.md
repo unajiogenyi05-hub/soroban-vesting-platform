@@ -151,3 +151,26 @@ A typical DAO team vesting setup:
 
 This locks all tokens for 1 year, then releases them linearly over the
 following 3 years — a standard DAO contributor vesting schedule.
+
+---
+
+## Multisig governance: pause vesting via proposal
+
+The multisig contract governs the vesting contract through proposals. The most
+common governance operation is pausing the vesting contract, which is done by
+submitting a `ProposalAction::Call { target: vesting, function: "pause", args: [] }`
+proposal to the multisig and confirming it to threshold.
+
+A Node.js example that builds the `CallData` ScVal for `vesting.pause()` and
+simulates `multisig.submit()` is available at
+[scripts/examples/submit-multisig-pause.js](../../scripts/examples/submit-multisig-pause.js):
+
+```bash
+node scripts/examples/submit-multisig-pause.js \\
+  <MULTISIG_CONTRACT_ID> <VESTING_CONTRACT_ID> <PROPOSER_SECRET_KEY> \\
+  --network testnet
+```
+
+The script prints the simulated transaction XDR for inspection. Once the
+proposal reaches the confirmation threshold, anyone can call `execute()` on
+the multisig to dispatch the pause call to the vesting contract.
