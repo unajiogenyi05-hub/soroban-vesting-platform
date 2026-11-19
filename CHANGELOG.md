@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added — 2026-11-19
+
+- docs/testnet-demo.md: "Common pitfalls" section after the manual
+  walkthrough (#290). It covers unfunded accounts, the `wasm32v1-none` target,
+  the `--` argument separator, identity and network mismatches, schedule
+  parameters and timestamps, and archived storage (linking `docs/ttl.md`). Each
+  entry quotes the real error text captured on testnet with stellar-cli 28.0.0
+  and gives the fix command.
+
+### Fixed — 2026-11-19
+
+- docs/testnet-demo.md: the step 6 `create_schedule` example now passes
+  `total_amount` as a JSON string. stellar-cli 28 rejects a bare number for
+  `i128` with "invalid type: number, expected string or map" (#290).
+
 ### Added �?" 2026-10-21
 
 - multisig: `get_pending_proposals(env) -> Vec<u64>` read-only view
