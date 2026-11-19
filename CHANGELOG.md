@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 ### Added — 2026-11-19
 
+- docs/events.md: reference for every event the token, vesting and multisig
+  contracts publish, with topic tuple, typed data payload and emitting
+  function (#248). It includes `benXfer`, notes that `token::transfer_admin`
+  emits `admXfer`, explains the 9-character `symbol_short!` limit and shows a
+  `getEvents` RPC filter. Linked from the README and each contract README.
 - docs/testnet-demo.md: "Common pitfalls" section after the manual
   walkthrough (#290). It covers unfunded accounts, the `wasm32v1-none` target,
   the `--` argument separator, identity and network mismatches, schedule
@@ -22,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed — 2026-11-19
 
+- contracts/vesting/README.md: the Events table now lists `benXfer`, emitted
+  by `transfer_beneficiary` (#248).
 - docs/testnet-demo.md: the step 6 `create_schedule` example now passes
   `total_amount` as a JSON string. stellar-cli 28 rejects a bare number for
   `i128` with "invalid type: number, expected string or map" (#290).
