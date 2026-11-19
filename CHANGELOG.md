@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-11-19
+
+- contracts/vesting/README.md: "Rounding" subsection documenting that
+  `vested_amount()` uses integer division (truncates toward zero), with a
+  maximum rounding error of `total_duration - 1` tokens per call, a worked
+  numeric example (`total_amount = 100`, `total_duration = 3`, `elapsed = 1`
+  → `100 / 3 = 33`, 1 token lost), and the implication that the last claim may
+  receive slightly more than intermediate claims (#294).
+- scripts/query-token.sh: CLI helper to query a SEP-0041 token balance and
+  `total_supply` from testnet (or mainnet) via `stellar contract invoke`,
+  modeled on `scripts/invoke.sh` (#296).
+- scripts/examples/submit-multisig-pause.js: Node.js example that builds the
+  `CallData` ScVal for `vesting.pause()` using `nativeToScVal`, wraps it as
+  `ProposalAction::Call { target: vesting, function: "pause", args: [] }`,
+  simulates `multisig.submit()` via `@stellar/stellar-sdk`, and prints the
+  simulated transaction XDR. Linked from `docs/testnet-demo.md` (#300).
+
+### Changed — 2026-11-19
+
+- contracts/vesting/src/lib.rs, contracts/token/src/lib.rs,
+  contracts/multisig/src/lib.rs: removed unjustified
+  `#![allow(deprecated)]` and `#![allow(clippy::needless_borrows_for_generic_args)]`
+  attributes that masked warnings from soroban-sdk internals. No deprecated or
+  clippy-flagged constructs found in our own code; if SDK-internal warnings
+  surface they can be re-added with a `// reason:` comment (#297).
+
 ### Added — 2026-10-15
 
 - contracts/vesting: `batch_create_schedule(env, params: Vec<CreateScheduleParams>) -> Vec<u64>`
