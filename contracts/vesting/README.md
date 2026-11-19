@@ -220,6 +220,22 @@ Read-only; does not extend TTL.
 
 ---
 
+### `get_schedules_paginated(env, offset: u64, limit: u64) -> Vec<VestingSchedule>`
+
+Returns a page of schedules ordered by ID ascending. `offset` is the number of
+schedules to skip (0-based); `limit` is the maximum number to return. Only
+schedules that exist in storage are included, so gaps are skipped.
+
+Use this instead of loading every schedule when you only need a page — it has
+no write footprint and does not extend any TTL, so it is safe to call
+repeatedly for large deployments.
+
+**Panics:** none.
+
+Read-only; does not extend TTL.
+
+---
+
 ### `get_unvested_amount(env, schedule_id: u64) -> i128`
 
 Returns `total_amount - vested_amount(now)`, clamped to `0`.  Represents the

@@ -15,11 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry quotes the real error text captured on testnet with stellar-cli 28.0.0
   and gives the fix command.
 
+- contracts/vesting/src/lib.rs: `get_schedules_paginated(env, offset, limit)
+  -> Vec<VestingSchedule>` read-only paginated view returning a page of
+  schedules ordered by ID, with no write footprint and no TTL bump (#288).
+
 ### Fixed — 2026-11-19
 
 - docs/testnet-demo.md: the step 6 `create_schedule` example now passes
   `total_amount` as a JSON string. stellar-cli 28 rejects a bare number for
   `i128` with "invalid type: number, expected string or map" (#290).
+
+### Tests — 2026-11-19
+
+- contracts/vesting/src/lib.rs: tests for `get_schedules_paginated()` — first
+  page returns the correct schedules, offset skips the expected number of
+  schedules, offset beyond total is empty, and an oversized limit returns all
+  schedules (#288).
 
 ### Added �?" 2026-10-21
 

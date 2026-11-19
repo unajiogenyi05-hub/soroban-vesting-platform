@@ -497,6 +497,42 @@ impl VestingContract {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
 
+    /// Return a page of schedules ordered by ID ascending.
+    ///
+    /// `offset` is the number of schedules to skip (0-based). `limit` is the
+    /// maximum number of schedules to return. Only schedules that exist in
+    /// storage are included, so gaps (e.g. IDs never assigned) are skipped.
+    ///
+    /// This is a read-only view: it does not extend any TTL and has no write
+    /// footprint, making it safe to call repeatedly for large deployments
+    /// without incurring rent on every page.
+    ///
+    /// # Arguments
+    /// - `offset` — number of schedules to skip before collecting results.
+    /// - `limit` — maximum number of schedules to return.
+    ///
+    /// # Returns
+    /// A `Vec<VestingSchedule>` containing at most `limit` schedules, starting
+    /// after `offset`. Empty when `offset >= total`.
+    pub fn get_schedules_paginated(env: Env, offset: u64, limit: u64) -> Vec<VestingSchedule> {
+        let total: u64 = env.storage().instance().get(&SCHED_ID).unwrap_or(0);
+        let start = offset.saturating_add(1); // schedule IDs start at 1
+        let end = offset.saturating_add(limit).min(total);
+        let mut result = Vec::new(&env);
+        if start <= end {
+            for id in start..=end {
+                if let Some(schedule) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, VestingSchedule>(&DataKey::Schedule(id))
+                {
+                    result.push_back(schedule);
+                }
+            }
+        }
+        result
+    }
+
     /// Return the amount that is still unvested (what would be returned to
     /// the recipient if `revoke()` were called now).
     ///
@@ -1523,6 +1559,85 @@ mod tests {
             total_duration: 100,
         });
         assert_eq!(vesting.schedule_count(), 2);
+    }
+
+    // ── get_schedules_paginated returns pages of schedules ───────────────────
+
+    #[test]
+    fn test_get_schedules_paginated_first_page() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id3 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        assert_eq!([id1, id2, id3], [1, 2, 3]);
+
+        // First page: offset 0, limit 2 → schedules 1 and 2.
+        let page1 = vesting.get_schedules_paginated(&0u64, &2u64);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1[0].id, 1);
+        assert_eq!(page1[1].id, 2);
+    }
+
+    #[test]
+    fn test_get_schedules_paginated_offset() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        for _ in 0..3 {
+            vesting.create_schedule(&CreateScheduleParams {
+                from: funder.clone(),
+                beneficiary: beneficiary.clone(),
+                token_address: token.clone(),
+                total_amount: 100_000,
+                start_time: start,
+                cliff_duration: 0,
+                total_duration: 100,
+            });
+        }
+
+        // Second page: offset 2, limit 2 → schedule 3 only.
+        let page2 = vesting.get_schedules_paginated(&2u64, &2u64);
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].id, 3);
+
+        // Offset beyond total → empty.
+        let page3 = vesting.get_schedules_paginated(&10u64, &5u64);
+        assert_eq!(page3.len(), 0);
+
+        // Limit larger than total → all three.
+        let all = vesting.get_schedules_paginated(&0u64, &100u64);
+        assert_eq!(all.len(), 3);
     }
 
     // ── multiple beneficiaries have independent schedules ────────────────────
