@@ -99,6 +99,26 @@ Authorization: admin.
 
 ---
 
+### `batch_revoke(env, schedule_ids: Vec<u64>, recipient: Address) -> Vec<i128>`
+
+Revokes multiple schedules for a beneficiary in a single transaction. Admin
+auth is required once and covers the whole batch. Each schedule in
+`schedule_ids` is revoked using the same logic as `revoke`: vested-but-unclaimed
+tokens go to the beneficiary and the unvested portion goes to `recipient`.
+
+Schedules that are missing or not `Active` are skipped (their unvested amount is
+`0`), so a partial batch still revokes the eligible schedules rather than
+failing entirely.
+
+Returns a `Vec<i128>` of unvested amounts, one per input ID, in the same order.
+
+Authorization: admin.
+
+**Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)` for each
+schedule that was actually revoked.
+
+---
+
 ### `pause(env)`
 
 Blocks `create_schedule` and `claim`. Does not affect `revoke` or

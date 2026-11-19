@@ -238,18 +238,74 @@ impl VestingContract {
     ///
     /// Vested-but-unclaimed tokens are paid to the beneficiary first.
     /// Only the truly unvested portion is returned to `recipient`.
+    /// Revoke an active schedule. Caller must be admin.
+    ///
+    /// Vested-but-unclaimed tokens are paid to the beneficiary first.
+    /// Only the truly unvested portion is returned to `recipient`.
+    ///
+    /// Returns the unvested amount returned to `recipient`.
+    ///
+    /// Authorization: admin.
+    ///
+    /// **Panics:**
+    /// - `"schedule not found"` — schedule ID does not exist
+    /// - `"schedule is not active"` — schedule is already Revoked or Completed
+    ///
+    /// **Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)`
     pub fn revoke(env: Env, schedule_id: u64, recipient: Address) -> i128 {
         Self::bump_instance(&env);
         Self::require_admin(&env);
+        Self::try_revoke(&env, schedule_id, &recipient)
+            .unwrap_or_else(|err| panic_with_error!(&env, err))
+    }
 
+    /// Revoke multiple schedules for a beneficiary in a single transaction.
+    ///
+    /// Requires admin auth once, covering the whole batch. Iterates
+    /// `schedule_ids`, applies the revoke logic to each, and returns the
+    /// unvested amount for each schedule in the same order as the input.
+    ///
+    /// Schedules that are missing or not `Active` are skipped (their unvested
+    /// amount is `0`), so a partial batch still revokes the eligible schedules.
+    ///
+    /// Returns a `Vec<i128>` of unvested amounts, one per input ID.
+    ///
+    /// Authorization: admin.
+    ///
+    /// **Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)` for
+    /// each schedule that was actually revoked.
+    pub fn batch_revoke(env: Env, schedule_ids: Vec<u64>, recipient: Address) -> Vec<i128> {
+        Self::bump_instance(&env);
+        Self::require_admin(&env);
+
+        let mut unvested_amounts: Vec<i128> = Vec::new(&env);
+        for id in schedule_ids.iter() {
+            let unvested = match Self::try_revoke(&env, *id, &recipient) {
+                Ok(amount) => amount,
+                Err(_) => 0, // skip missing or not-active schedules
+            };
+            unvested_amounts.push_back(unvested);
+        }
+        unvested_amounts
+    }
+
+    /// Internal revoke logic shared by `revoke` and `batch_revoke`.
+    ///
+    /// Returns `Ok(unvested)` when the schedule was active and got revoked,
+    /// `Err(ScheduleNotFound)` when it does not exist, or
+    /// `Err(ScheduleNotActive)` when it is already Revoked or Completed.
+    ///
+    /// Does NOT perform auth or instance TTL bump — the caller is responsible
+    /// for those (`revoke` does them per call; `batch_revoke` once per batch).
+    fn try_revoke(env: &Env, schedule_id: u64, recipient: &Address) -> Result<i128, VestingError> {
         let mut schedule: VestingSchedule = env
             .storage()
             .persistent()
             .get(&DataKey::Schedule(schedule_id))
-            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+            .ok_or(VestingError::ScheduleNotFound)?;
 
         if schedule.status != ScheduleStatus::Active {
-            panic_with_error!(&env, VestingError::ScheduleNotActive);
+            return Err(VestingError::ScheduleNotActive);
         }
 
         let now = env.ledger().timestamp();
@@ -276,7 +332,7 @@ impl VestingContract {
         // ── Interactions: token transfers happen after state is finalised ──
         // Pay any vested-but-unclaimed tokens to the beneficiary.
         if unclaimed_vested > 0 {
-            let tk = token::Client::new(&env, &schedule.token);
+            let tk = token::Client::new(env, &schedule.token);
             tk.transfer(
                 &env.current_contract_address(),
                 &schedule.beneficiary,
@@ -286,14 +342,14 @@ impl VestingContract {
 
         // Return the unvested portion to the recipient (typically treasury).
         if unvested > 0 {
-            let tk = token::Client::new(&env, &schedule.token);
-            tk.transfer(&env.current_contract_address(), &recipient, &unvested);
+            let tk = token::Client::new(env, &schedule.token);
+            tk.transfer(&env.current_contract_address(), recipient, &unvested);
         }
 
         env.events()
             .publish((EVT_REVOKED,), (schedule_id, unvested));
 
-        unvested
+        Ok(unvested)
     }
 
     // ── Pause ────────────────────────────────────────────────────────────
@@ -1726,6 +1782,83 @@ mod tests {
 
         vesting.revoke(&id, &admin);
         vesting.revoke(&id, &admin); // must panic with VestingError::ScheduleNotActive
+    }
+
+    // ── batch_revoke revokes multiple schedules in one transaction ───────────
+
+    #[test]
+    fn test_batch_revoke_all_active() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let ids: Vec<u64> = (0..3)
+            .map(|_| {
+                vesting.create_schedule(&CreateScheduleParams {
+                    from: funder.clone(),
+                    beneficiary: beneficiary.clone(),
+                    token_address: token.clone(),
+                    total_amount: 100_000,
+                    start_time: start,
+                    cliff_duration: 0,
+                    total_duration: 100,
+                })
+            })
+            .collect();
+
+        // At t=30 each schedule has 30 000 vested and 70 000 unvested.
+        env.ledger().with_mut(|l| l.timestamp = start + 30);
+
+        let returned = vesting.batch_revoke(&ids, &treasury);
+        assert_eq!(returned, vec![70_000, 70_000, 70_000]);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(token_client.balance(&treasury), 210_000);
+        for id in ids.iter() {
+            assert_eq!(vesting.get_schedule(&id).status, ScheduleStatus::Revoked);
+        }
+    }
+
+    #[test]
+    fn test_batch_revoke_partial() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        // id2 is already revoked, id3 (999) does not exist — both must be
+        // skipped without failing the whole batch.
+        vesting.revoke(&id2, &treasury);
+
+        env.ledger().with_mut(|l| l.timestamp = start + 30);
+
+        // [id1(active), id2(revoked), 999(missing)] → [70_000, 0, 0].
+        let returned = vesting.batch_revoke(&vec![id1, id2, 999u64], &treasury);
+        assert_eq!(returned, vec![70_000, 0, 0]);
+
+        assert_eq!(vesting.get_schedule(&id1).status, ScheduleStatus::Revoked);
+        assert_eq!(vesting.get_schedule(&id2).status, ScheduleStatus::Revoked);
     }
 
     // ── E3: revoke() state is finalised before token transfers (CEI) ─────────

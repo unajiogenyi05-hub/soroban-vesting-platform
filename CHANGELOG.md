@@ -15,11 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry quotes the real error text captured on testnet with stellar-cli 28.0.0
   and gives the fix command.
 
+- contracts/vesting/src/lib.rs: `batch_revoke(env, schedule_ids, recipient)
+  -> Vec<i128>` revokes multiple schedules for a beneficiary in a single
+  transaction with a single admin auth, reusing the internal revoke logic
+  (#285).
+
 ### Fixed — 2026-11-19
 
 - docs/testnet-demo.md: the step 6 `create_schedule` example now passes
   `total_amount` as a JSON string. stellar-cli 28 rejects a bare number for
   `i128` with "invalid type: number, expected string or map" (#290).
+
+### Tests — 2026-11-19
+
+- contracts/vesting/src/lib.rs: tests for `batch_revoke()` — a batch of 3 active
+  schedules returns the correct unvested amount for each, and a partial batch
+  (some active, some revoked/missing) skips the ineligible schedules (#285).
 
 ### Added �?" 2026-10-21
 
