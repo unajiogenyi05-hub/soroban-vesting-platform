@@ -28,9 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests — 2026-11-19
 
-- contracts/vesting/src/lib.rs: tests for `batch_revoke()` — a batch of 3 active
-  schedules returns the correct unvested amount for each, and a partial batch
-  (some active, some revoked/missing) skips the ineligible schedules (#285).
+- contracts/vesting/src/lib.rs: tests for `get_schedules_paginated()` — first
+  page returns the correct schedules, offset skips the expected number of
+  schedules, offset beyond total is empty, and an oversized limit returns all
+  schedules (#288).
 
 ### Added �?" 2026-10-21
 
