@@ -466,6 +466,30 @@ stellar contract invoke \
   --schedule_id 1
 ```
 
+### Operating the multisig with `scripts/invoke-multisig.sh`
+
+Instead of typing the full `stellar contract invoke` argument syntax for every
+multisig operation, use the [`scripts/invoke-multisig.sh`](../scripts/invoke-multisig.sh)
+helper, which wraps `submit`, `confirm`, and `execute`:
+
+```bash
+export MULTISIG_CONTRACT_ID=CABC…XYZ
+export SOURCE_ACCOUNT=my-admin   # fallback signer for `execute`
+
+# 1. Proposer submits a create_schedule proposal (proposer signs)
+./scripts/invoke-multisig.sh submit GABC…PROPOSER \
+  '{"Call":{"target":"'$VESTING_ID'","function":"create_schedule","args":[...]}}' \
+  'Create vesting schedule'
+
+# 2. Owner confirms the proposal (owner signs)
+./scripts/invoke-multisig.sh confirm GABC…OWNER 1
+
+# 3. Anyone executes once threshold is met
+./scripts/invoke-multisig.sh execute 1
+```
+
+See the script header for the full usage and environment variables.
+
 ### Next steps
 
 - Add more owners and raise the threshold for a real N-of-M governance setup
