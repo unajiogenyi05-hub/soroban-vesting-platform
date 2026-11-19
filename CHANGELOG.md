@@ -15,9 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry quotes the real error text captured on testnet with stellar-cli 28.0.0
   and gives the fix command.
 
-- contracts/vesting/src/lib.rs: `get_schedules_paginated(env, offset, limit)
-  -> Vec<VestingSchedule>` read-only paginated view returning a page of
-  schedules ordered by ID, with no write footprint and no TTL bump (#288).
+- contracts/vesting/src/lib.rs: `batch_revoke(env, schedule_ids, recipient)
+  -> Vec<i128>` revokes multiple schedules for a beneficiary in a single
+  transaction with a single admin auth, reusing the internal revoke logic
+  (#285).
 
 ### Fixed — 2026-11-19
 
