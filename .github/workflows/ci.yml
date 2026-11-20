@@ -13,13 +13,18 @@ env:
 jobs:
   # ── Contracts ──────────────────────────────────────────────────────────────
   contracts:
-    name: Contracts (fmt / clippy / test / build)
+    name: Contracts (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable, beta]
+      fail-fast: false
+    continue-on-error: ${{ matrix.toolchain == 'beta' }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust ${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@${{ matrix.toolchain }}
         with:
           components: rustfmt, clippy
           targets: wasm32v1-none
