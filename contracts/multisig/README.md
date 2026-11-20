@@ -176,6 +176,22 @@ Returns the total number of proposals submitted (the last assigned ID).
 Read-only; does not extend TTL.
 
 ---
+### `get_pending_proposals(env) -> Vec<u64>`
+
+Returns the IDs of all proposals whose status is `Pending`, in ascending ID
+order. Executed and Cancelled proposals are excluded. Returns an empty vector
+when there are no proposals.
+
+**Cost:** performs an O(n) scan over all proposal IDs from `1` to
+`proposal_count()`, reading each `DataKey::Proposal(id)` entry. Intended for
+the expected scale of proposals; prefer `get_proposal` for single lookups.
+
+Read-only — does not extend TTL or write any storage.
+
+Authorization: none.
+
+---
+
 
 ### `has_confirmed(env, proposal_id: u64, owner: Address) -> bool`
 
@@ -184,10 +200,32 @@ extend TTL.
 
 ---
 
+### `get_confirmations(env, proposal_id: u64) -> Vec<Address>`
+
+Returns the owners who have confirmed `proposal_id`, in owner-list order.
+Empty when there are no confirmations. Read-only; does not extend TTL.
+
+---
+
 ### `is_owner(env, address: Address) -> bool`
 
 Returns `true` if `address` is in the current owner set. Read-only; does not
 extend TTL.
+
+---
+
+### `is_executable(env, proposal_id: u64) -> bool`
+
+Returns `true` if the proposal identified by `proposal_id` is ready to
+execute: its status is `Pending` **and** `confirmation_count >= threshold`.
+
+Encapsulates the two-step check (`get_proposal` + `get_threshold`) that
+callers would otherwise need to perform manually. Useful for UIs and off-chain
+bots that poll proposal readiness without triggering execution.
+
+Read-only — does not extend TTL or write any storage.
+
+**Panics:** `"proposal not found"` — `proposal_id` does not exist in storage.
 
 ---
 
@@ -234,6 +272,9 @@ See [docs/ttl.md](../../docs/ttl.md).
 ---
 
 ## Events
+
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
 
 | Topic | Data | Emitted by |
 |-------|------|-----------|

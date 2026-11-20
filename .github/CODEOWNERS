@@ -1,0 +1,32 @@
+# CODEOWNERS
+#
+# Each line maps a path pattern to one or more GitHub usernames.
+# GitHub automatically requests a review from the listed owners whenever
+# a pull request touches files matching that pattern.
+#
+# How to add a new reviewer:
+#   1. Add the GitHub username (prefixed with @) to the relevant line.
+#   2. Multiple owners are space-separated, e.g.:
+#        contracts/ @unajiogenyi05-hub @another-reviewer
+#   3. The last matching rule wins, so put more-specific patterns after
+#      less-specific ones.
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# ── Default owner for all files not matched below ────────────────────────────
+* @unajiogenyi05-hub
+
+# ── Smart contracts — require contract team review ───────────────────────────
+contracts/ @unajiogenyi05-hub
+
+# ── CI configuration and GitHub settings ─────────────────────────────────────
+.github/ @unajiogenyi05-hub
+
+# ── Node.js backend ──────────────────────────────────────────────────────────
+backend/ @unajiogenyi05-hub
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+frontend/ @unajiogenyi05-hub
+
+# ── Deployment and utility scripts ───────────────────────────────────────────
+scripts/ @unajiogenyi05-hub
