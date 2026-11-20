@@ -49,6 +49,17 @@ If instance storage is archived, the contract cannot be invoked at all until
 it is restored.  Use `stellar contract restore` or the Stellar SDK's
 `restoreFootprint` operation targeting the contract instance.
 
+A helper script is provided at `scripts/restore.sh` which restores the instance
+storage for the token and vesting contracts using the IDs in `deployments.json`:
+
+```bash
+./scripts/restore.sh
+```
+
+Persistent entries (vesting schedules, token balances/allowances, multisig
+proposals/confirmations) must be restored individually by storage key — see the
+example below and the script comments for details.
+
 Instance TTL is bumped on **every public function call**, so an actively used
 contract will never archive.
 
