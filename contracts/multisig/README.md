@@ -79,7 +79,7 @@ Authorization: `owner` (must be an owner).
 - `"already confirmed"` — `owner` has already confirmed this proposal
 - `"not an owner"` — `owner` is not in the owner set
 
-**Events:** `("confirmed",)` → `(proposal_id: u64, owner: Address)`
+**Events:** `("confirmed",)` → `(proposal_id: u64, owner: Address, confirmation_count: u32)`
 
 ---
 
@@ -176,6 +176,22 @@ Returns the total number of proposals submitted (the last assigned ID).
 Read-only; does not extend TTL.
 
 ---
+### `get_pending_proposals(env) -> Vec<u64>`
+
+Returns the IDs of all proposals whose status is `Pending`, in ascending ID
+order. Executed and Cancelled proposals are excluded. Returns an empty vector
+when there are no proposals.
+
+**Cost:** performs an O(n) scan over all proposal IDs from `1` to
+`proposal_count()`, reading each `DataKey::Proposal(id)` entry. Intended for
+the expected scale of proposals; prefer `get_proposal` for single lookups.
+
+Read-only — does not extend TTL or write any storage.
+
+Authorization: none.
+
+---
+
 
 ### `has_confirmed(env, proposal_id: u64, owner: Address) -> bool`
 
@@ -184,10 +200,32 @@ extend TTL.
 
 ---
 
+### `get_confirmations(env, proposal_id: u64) -> Vec<Address>`
+
+Returns the owners who have confirmed `proposal_id`, in owner-list order.
+Empty when there are no confirmations. Read-only; does not extend TTL.
+
+---
+
 ### `is_owner(env, address: Address) -> bool`
 
 Returns `true` if `address` is in the current owner set. Read-only; does not
 extend TTL.
+
+---
+
+### `is_executable(env, proposal_id: u64) -> bool`
+
+Returns `true` if the proposal identified by `proposal_id` is ready to
+execute: its status is `Pending` **and** `confirmation_count >= threshold`.
+
+Encapsulates the two-step check (`get_proposal` + `get_threshold`) that
+callers would otherwise need to perform manually. Useful for UIs and off-chain
+bots that poll proposal readiness without triggering execution.
+
+Read-only — does not extend TTL or write any storage.
+
+**Panics:** `"proposal not found"` — `proposal_id` does not exist in storage.
 
 ---
 
@@ -235,15 +273,98 @@ See [docs/ttl.md](../../docs/ttl.md).
 
 ## Events
 
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
+
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("submitted",)` | `(id, proposer)` | `submit` |
-| `("confirmed",)` | `(proposal_id, owner)` | `confirm` |
+| `("confirmed",)` | `(proposal_id, owner, confirmation_count)` | `confirm` |
 | `("revoked",)` | `(proposal_id, owner)` | `revoke_confirmation` |
 | `("executed",)` | `proposal_id` | `execute` |
 | `("cancelled",)` | `proposal_id` | `cancel` |
 | `("ownerAdd",)` | `new_owner` | `execute` (AddOwner action) |
 | `("ownerRm",)` | `owner` | `execute` (RemoveOwner action) |
+
+---
+
+## Panic conditions reference
+
+A consolidated table of every panic message the contract can produce, the
+function(s) that may produce it, and the condition that triggers it.
+
+| Panic message | Function(s) | Condition |
+|---------------|-------------|-----------|
+| `"need at least one owner"` | `__constructor` | `owners` vector is empty |
+| `"invalid threshold"` | `__constructor`, `execute` (`UpdateThreshold`) | `threshold == 0` or `threshold > owners.len()` |
+| `"not an owner"` | `submit`, `confirm`, `revoke_confirmation`, `cancel`, `execute` (`RemoveOwner`) | Caller / specified address is not in the current owner set |
+| `"proposal not found"` | `confirm`, `revoke_confirmation`, `execute`, `cancel` | `proposal_id` key does not exist in persistent storage |
+| `"not found"` | `get_proposal` | `proposal_id` key does not exist in persistent storage |
+| `"proposal not pending"` | `confirm`, `revoke_confirmation`, `execute`, `cancel` | Proposal status is `Executed` or `Cancelled` |
+| `"already confirmed"` | `confirm` | `owner` has already recorded a confirmation for this proposal |
+| `"not confirmed"` | `revoke_confirmation` | `owner` has not yet confirmed this proposal |
+| `"not enough confirmations"` | `execute` | `confirmation_count < threshold` |
+| `"only proposer can cancel"` | `cancel` | `caller` is not the original `proposer` of the proposal |
+| `"already an owner"` | `execute` (`AddOwner` action) | The address to add is already in the owner set |
+| `"cannot remove: would breach threshold"` | `execute` (`RemoveOwner` action) | `owners.len() <= threshold`; removing one more owner would make the threshold unsatisfiable |
+
+### `__constructor` panics
+
+| Condition | Message |
+|-----------|---------|
+| `owners` is empty | `"need at least one owner"` |
+| `threshold == 0` or `threshold > owners.len()` | `"invalid threshold"` |
+
+### `submit` panics
+
+| Condition | Message |
+|-----------|---------|
+| `proposer` is not in the owner set | `"not an owner"` |
+
+### `confirm` panics
+
+| Condition | Message |
+|-----------|---------|
+| `proposal_id` not in storage | `"proposal not found"` |
+| Proposal is not `Pending` | `"proposal not pending"` |
+| `owner` already confirmed | `"already confirmed"` |
+| `owner` not in owner set | `"not an owner"` |
+
+### `revoke_confirmation` panics
+
+| Condition | Message |
+|-----------|---------|
+| `proposal_id` not in storage | `"proposal not found"` |
+| Proposal is not `Pending` | `"proposal not pending"` |
+| `owner` has not confirmed | `"not confirmed"` |
+| `owner` not in owner set | `"not an owner"` |
+
+### `execute` panics
+
+| Condition | Message |
+|-----------|---------|
+| `proposal_id` not in storage | `"proposal not found"` |
+| Proposal is not `Pending` | `"proposal not pending"` |
+| `confirmation_count < threshold` | `"not enough confirmations"` |
+| `AddOwner`: address already an owner | `"already an owner"` |
+| `RemoveOwner`: address not in owner set | `"not an owner"` |
+| `RemoveOwner`: would leave fewer owners than threshold | `"cannot remove: would breach threshold"` |
+| `UpdateThreshold`: new value is 0 or > owner count | `"invalid threshold"` |
+
+### `cancel` panics
+
+| Condition | Message |
+|-----------|---------|
+| `proposal_id` not in storage | `"proposal not found"` |
+| Proposal is not `Pending` | `"proposal not pending"` |
+| `caller` is not the original proposer | `"only proposer can cancel"` |
+| `caller` not in owner set | `"not an owner"` |
+
+### `get_proposal` panics
+
+| Condition | Message |
+|-----------|---------|
+| `proposal_id` not in storage | `"not found"` |
 
 ---
 

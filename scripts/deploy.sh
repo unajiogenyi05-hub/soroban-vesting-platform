@@ -2,13 +2,19 @@
 # deploy.sh  — Build and deploy a single Soroban contract
 # Usage: ./scripts/deploy.sh <contract-name> <network>
 # Example: ./scripts/deploy.sh vesting testnet
+#
+# Note: constructor arguments must be appended after a -- separator when
+# calling stellar contract deploy.  For example:
+#   ./scripts/deploy.sh vesting testnet -- --admin "$ADMIN"
+# See the "Deploy to Testnet" section of the project README for the full
+# commands with all required constructor arguments for each contract.
 
 set -euo pipefail
 
 CONTRACT="${1:?Usage: deploy.sh <contract-name> <network>}"
 NETWORK="${2:-testnet}"
 
-WASM="target/wasm32-unknown-unknown/release/${CONTRACT}.wasm"
+WASM="target/wasm32v1-none/release/${CONTRACT}.wasm"
 DEPLOYMENTS="deployments.json"
 
 # Load env
@@ -27,7 +33,7 @@ if [ "$NETWORK" = "mainnet" ]; then
 fi
 
 echo "▶ Building ${CONTRACT}…"
-cargo build -p "${CONTRACT}" --target wasm32-unknown-unknown --release
+stellar contract build
 
 if [ ! -f "$WASM" ]; then
   echo "✗ WASM not found at $WASM"
@@ -40,7 +46,8 @@ CONTRACT_ID=$(stellar contract deploy \
   --source "$SOURCE" \
   --network "$NETWORK" \
   --rpc-url "$RPC_URL" \
-  --network-passphrase "$NETWORK_PASSPHRASE")
+  --network-passphrase "$NETWORK_PASSPHRASE" \
+  -- "$@")
 
 echo "✓ Deployed: ${CONTRACT_ID}"
 
