@@ -2126,6 +2126,102 @@ mod tests {
         assert_eq!(token_client.balance(&beneficiary), 100_000);
     }
 
+    /// End-to-end: pausing the token via multisig blocks vesting.create_schedule.
+    ///
+    /// The multisig is both the token admin and the vesting admin. A 2-of-3
+    /// proposal submits `token.pause()`, both required owners confirm, and
+    /// `execute()` is called. We assert `token.is_paused() == true`, then
+    /// submit a `vesting.create_schedule` proposal through the same multisig.
+    /// `create_schedule` internally calls `token.transfer`, which panics with
+    /// "token is paused" because the token is paused — so the multisig
+    /// `execute()` propagates that panic.
+    #[test]
+    #[should_panic(expected = "token is paused")]
+    fn test_multisig_token_pause_blocks_create_schedule() {
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
+        use soroban_sdk::{token::StellarAssetClient, IntoVal, symbol_short};
+        use token::TokenContractClient;
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+
+        // Deploy multisig (2-of-3) — it will be both the token and vesting admin.
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
+
+        // Deploy the token with the multisig as admin, then mint to funder.
+        let token_id = env.register_stellar_asset_contract_v2(ms_id.clone());
+        let token_addr = token_id.address();
+        StellarAssetClient::new(&env, &token_addr).mint(&funder, &100_000);
+        let token = TokenContractClient::new(&env, &token_addr);
+
+        // Deploy vesting with the multisig as admin.
+        let vesting_id = env.register(VestingContract, (ms_id.clone(),));
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        // ── Step 1: pause the token via multisig ──────────────────────────
+        let pause_id = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: token_addr.clone(),
+                function: symbol_short!("pause"),
+                args: soroban_sdk::Vec::new(&env),
+            }),
+            &soroban_sdk::String::from_str(&env, "pause token via multisig"),
+        );
+        ms.confirm(&o1, &pause_id);
+        ms.confirm(&o2, &pause_id);
+        ms.execute(&pause_id);
+
+        assert_eq!(
+            ms.get_proposal(&pause_id).status,
+            multisig::ProposalStatus::Executed
+        );
+        // Cross-contract pause propagation: the token must now be paused.
+        assert!(token.is_paused());
+
+        // ── Step 2: create_schedule via multisig must panic "token is paused" ──
+        let start = env.ledger().timestamp();
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        let mut args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::Vec::new(&env);
+        args.push_back(params.into_val(&env));
+
+        let _schedule_id = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::Symbol::new(&env, "create_schedule"),
+                args,
+            }),
+            &soroban_sdk::String::from_str(&env, "create schedule while token paused"),
+        );
+        ms.confirm(&o1, &_schedule_id);
+        ms.confirm(&o2, &_schedule_id);
+        // create_schedule → token.transfer panics with "token is paused".
+        ms.execute(&_schedule_id);
+
+        let _ = vesting;
+    }
+
     // ── Overflow guards ───────────────────────────────────────────────────────
 
     /// create_schedule with start_time + total_duration overflowing u64 must
