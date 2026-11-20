@@ -349,6 +349,27 @@ vested(now):
 where `elapsed = now - start_time`.  
 `saturating_mul` is used to prevent i128 overflow for large amounts × elapsed.
 
+### Rounding
+
+The vesting formula uses integer division:
+
+```
+vested = elapsed * total_amount / total_duration
+```
+
+Integer division truncates toward zero (floor division for positive values), so
+the result is always rounded down.  The rounding error per call is at most
+`total_duration - 1` tokens — the remainder dropped by the division.
+
+**Worked example:**
+- `total_amount = 100`, `total_duration = 3`, `elapsed = 1`
+- `100 / 3 = 33` (1 token lost to rounding)
+
+**Implication:** the last claim may receive slightly more than intermediate
+claims, because the final claim picks up any tokens left over from the
+truncation of earlier claims.  Over the full schedule the beneficiary still
+receives at most `total_amount` in total.
+
 ---
 
 ## Rounding behavior
