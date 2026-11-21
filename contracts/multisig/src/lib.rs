@@ -589,6 +589,45 @@ impl MultisigContract {
         proposal.status == ProposalStatus::Pending && proposal.confirmation_count >= threshold
     }
 
+    /// Return a page of proposals identified by `offset` and `limit`.
+    ///
+    /// Proposals are numbered from 1 to `proposal_count()` inclusive.
+    /// `offset` is zero-based: `offset = 0, limit = 10` returns proposals
+    /// 1–10; `offset = 10, limit = 10` returns proposals 11–20.
+    ///
+    /// If `offset` is beyond the last proposal, an empty `Vec` is returned.
+    /// If `offset + limit` exceeds the last proposal, the returned `Vec`
+    /// contains only the proposals that exist — no padding or error.
+    ///
+    /// Proposals that were archived and are no longer in persistent storage
+    /// are silently skipped so that archival of individual entries never
+    /// causes the call to panic.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn get_proposals_paginated(env: Env, offset: u64, limit: u64) -> Vec<ProposalData> {
+        let total: u64 = env.storage().instance().get(&PROP_COUNT).unwrap_or(0);
+        let mut result = Vec::new(&env);
+
+        if limit == 0 || offset >= total {
+            return result;
+        }
+
+        // IDs are 1-based; offset is 0-based.
+        let start = offset + 1;
+        let end = (offset + limit).min(total);
+
+        for id in start..=end {
+            if let Some(p) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, ProposalData>(&DataKey::Proposal(id))
+            {
+                result.push_back(p);
+            }
+        }
+        result
+    }
+
     /// Extend the contract instance TTL to `INSTANCE_BUMP_LEDGERS`.
     ///
     /// This is a permissionless keep-alive for contracts that are only read
@@ -1824,5 +1863,113 @@ mod tests {
         ms.cancel(&o1, &id);
 
         assert_eq!(ms.get_pending_proposals().len(), 0);
+    }
+
+    // ── get_proposals_paginated ───────────────────────────────────────────────
+
+    /// Helper: submit N proposals each with the description "proposal".
+    fn submit_n_proposals(
+        ms: &MultisigContractClient,
+        env: &Env,
+        proposer: &Address,
+        stub_id: &Address,
+        n: u64,
+    ) {
+        let desc = soroban_sdk::String::from_str(env, "proposal");
+        for _i in 1..=n {
+            ms.submit(
+                proposer,
+                &call_action(env, stub_id, symbol_short!("ping")),
+                &desc,
+            );
+        }
+    }
+
+    /// First page: offset=0, limit=3 on five proposals returns IDs 1,2,3.
+    #[test]
+    fn test_paginated_first_page() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 5);
+
+        let page = ms.get_proposals_paginated(&0u64, &3u64);
+        assert_eq!(page.len(), 3, "first page should have 3 entries");
+        assert_eq!(page.get(0).unwrap().id, 1u64);
+        assert_eq!(page.get(1).unwrap().id, 2u64);
+        assert_eq!(page.get(2).unwrap().id, 3u64);
+    }
+
+    /// Second page: offset=3, limit=3 on five proposals returns IDs 4,5.
+    #[test]
+    fn test_paginated_second_page() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 5);
+
+        let page = ms.get_proposals_paginated(&3u64, &3u64);
+        assert_eq!(page.len(), 2, "second page should have 2 entries (clipped at total)");
+        assert_eq!(page.get(0).unwrap().id, 4u64);
+        assert_eq!(page.get(1).unwrap().id, 5u64);
+    }
+
+    /// Offset beyond total returns an empty Vec — no panic.
+    #[test]
+    fn test_paginated_offset_beyond_total() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 3);
+
+        // offset=10 is way past proposal count=3
+        let page = ms.get_proposals_paginated(&10u64, &5u64);
+        assert_eq!(page.len(), 0, "offset beyond total should return empty Vec");
+    }
+
+    /// Zero proposals: any page returns an empty Vec.
+    #[test]
+    fn test_paginated_no_proposals() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let page = ms.get_proposals_paginated(&0u64, &10u64);
+        assert_eq!(page.len(), 0, "no proposals: page should be empty");
+    }
+
+    /// limit=0 always returns empty.
+    #[test]
+    fn test_paginated_zero_limit() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 3);
+
+        let page = ms.get_proposals_paginated(&0u64, &0u64);
+        assert_eq!(page.len(), 0, "limit=0 should return empty Vec");
+    }
+
+    /// Paginated view is read-only: proposal_count is unchanged after calls.
+    #[test]
+    fn test_paginated_no_write_footprint() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 4);
+        let count_before = ms.proposal_count();
+
+        ms.get_proposals_paginated(&0u64, &2u64);
+        ms.get_proposals_paginated(&2u64, &2u64);
+
+        assert_eq!(
+            ms.proposal_count(),
+            count_before,
+            "paginated read must not change proposal_count"
+        );
     }
 }

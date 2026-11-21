@@ -229,6 +229,25 @@ Read-only — does not extend TTL or write any storage.
 
 ---
 
+### `get_proposals_paginated(env, offset: u64, limit: u64) -> Vec<ProposalData>`
+
+Returns a page of proposals by zero-based `offset` and `limit`.
+
+Proposal IDs run from 1 to `proposal_count()` inclusive. `offset` is
+zero-based: `offset = 0, limit = 10` returns proposals with IDs 1–10;
+`offset = 10, limit = 10` returns proposals 11–20.
+
+| Condition | Behaviour |
+|-----------|-----------|
+| `offset >= proposal_count()` | Empty `Vec` returned |
+| `limit == 0` | Empty `Vec` returned |
+| `offset + limit > proposal_count()` | Truncated to the last existing proposal |
+| Archived persistent entry | Silently skipped (no panic) |
+
+Read-only — does not extend TTL or write any storage.
+
+---
+
 ### `extend_ttl(env)`
 
 Permissionless. Extends the contract instance TTL to `INSTANCE_BUMP_LEDGERS`
