@@ -180,9 +180,10 @@ describe('Vesting routes', () => {
     });
   });
 
-  // ── GET /beneficiary/:addr ─────────────────────────────────────────────────
-  describe('GET /api/vesting/beneficiary/:addr', () => {
+  // ── GET /beneficiary/:addr — stub fallback ────────────────────────────────
+  describe('GET /api/vesting/beneficiary/:addr — stub fallback', () => {
     it('returns 200 with success: true and correct beneficiary address', async () => {
+      delete process.env.SOURCE_SECRET_KEY;
       const addr = 'GABC123';
       const res = await request(app).get(`/api/vesting/beneficiary/${addr}`);
       expect(res.status).toBe(200);
@@ -191,18 +192,22 @@ describe('Vesting routes', () => {
     });
 
     it('returns scheduleIds as an empty array by default', async () => {
+      delete process.env.SOURCE_SECRET_KEY;
       const res = await request(app).get('/api/vesting/beneficiary/GABC123');
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data.scheduleIds)).toBe(true);
+      expect(res.body.data.scheduleIds).toHaveLength(0);
     });
 
     it('includes contractId in the response data', async () => {
+      delete process.env.SOURCE_SECRET_KEY;
       const res = await request(app).get('/api/vesting/beneficiary/GABC123');
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty('contractId');
     });
 
     it('reflects the address param in the beneficiary field for different addresses', async () => {
+      delete process.env.SOURCE_SECRET_KEY;
       const addr = 'GDEF456789012345678901234567890123456789012345678901234567';
       const res = await request(app).get(`/api/vesting/beneficiary/${addr}`);
       expect(res.status).toBe(200);
@@ -218,6 +223,54 @@ describe('Vesting routes', () => {
         .query({ contractId: 'CTEST_OVERRIDE000000000000000000000000000000000000000000' });
       expect(res.status).toBe(200);
       expect(res.body.data.contractId).toBe('CTEST_OVERRIDE000000000000000000000000000000000000000000');
+    });
+  });
+
+  // ── GET /beneficiary/:addr — live call ────────────────────────────────────
+  describe('GET /api/vesting/beneficiary/:addr — live call', () => {
+    // Valid G-address: G + 55 base-32 chars
+    const VALID_ADDR = 'GBMOMCDFID6S4ALFZP36ZIVA3RXDEZ6K5IAD5K3IQ3UNYTZHQN4BPMEA';
+
+    beforeEach(() => {
+      process.env.SOURCE_SECRET_KEY = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
+    });
+    afterEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('calls simulateContractCall with get_beneficiary_schedules and returns parsed IDs', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValueOnce([BigInt(1), BigInt(5), BigInt(9)]);
+
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.beneficiary).toBe(VALID_ADDR);
+      expect(res.body.data.scheduleIds).toEqual([1, 5, 9]);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockSimulate).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'get_beneficiary_schedules' })
+      );
+    });
+
+    it('returns empty scheduleIds when the contract returns an empty Vec', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValueOnce([]);
+
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.scheduleIds).toEqual([]);
+    });
+
+    it('returns 400 for an invalid Stellar address', async () => {
+      const res = await request(app).get('/api/vesting/beneficiary/not-a-stellar-address');
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('error');
+      expect(mockSimulate).not.toHaveBeenCalled();
+    });
+
+    it('propagates errors from simulateContractCall to the error handler', async () => {
+      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
+      expect(res.status).toBe(500);
     });
   });
 

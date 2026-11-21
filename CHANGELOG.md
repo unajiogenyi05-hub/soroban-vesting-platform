@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-11-21
 
+- backend/src/routes/vesting.js: `GET /api/vesting/beneficiary/:addr` now calls
+  `simulateContractCall` with method `get_beneficiary_schedules` and an `address`
+  arg when `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are set (#269). Decodes
+  the `Vec<u64>` result via `scValToNative` and maps each `BigInt` to `Number`.
+  Validates the address with the `G[A-Z2-7]{55}` regex (returns 400 for invalid
+  inputs). Falls back to `{ scheduleIds: [], note }` stub when either env var is
+  absent. Updated `vesting.test.js` with four new live-call tests: parsed IDs
+  returned, empty Vec handled, invalid address returns 400, RPC error propagates
+  to 500.
+
 - backend/src/routes/vesting.js: `GET /api/vesting/schedule/:id` now calls
   `simulateContractCall` with method `get_schedule` and a `u64` schedule-ID arg
   when `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are set (#267). Decodes the

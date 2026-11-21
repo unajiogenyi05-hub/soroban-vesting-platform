@@ -217,14 +217,55 @@ router.post('/unpause', contractIdMiddleware, async (req, res, next) => {
 
 /**
  * GET /api/vesting/beneficiary/:addr
+ *
+ * When VESTING_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates
+ * `get_beneficiary_schedules(beneficiary)` on the live contract and returns
+ * the parsed Vec<u64> as an array of schedule IDs. Falls back to an empty
+ * array stub otherwise.
  */
 router.get('/beneficiary/:addr', contractIdMiddleware, async (req, res, next) => {
   try {
     const { addr } = req.params;
     logger.info(`get_beneficiary_schedules addr=${addr}`);
+
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      // Validate Stellar account ID format (G + 55 base-32 chars).
+      if (!/^G[A-Z2-7]{55}$/.test(addr)) {
+        return res.status(400).json({ error: 'Invalid Stellar address' });
+      }
+
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+      const addrArg = nativeToScVal(addr, { type: 'address' });
+
+      const simResult = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'get_beneficiary_schedules',
+        args: [addrArg],
+        sourceKeypair,
+      });
+
+      // Decode Vec<u64>; scValToNative returns a JS array of BigInt values.
+      const raw = scValToNative(simResult.result.retval);
+      const scheduleIds = Array.isArray(raw) ? raw.map(Number) : [];
+
+      logger.info(`get_beneficiary_schedules addr=${addr} ids=${JSON.stringify(scheduleIds)}`);
+      return res.json({
+        success: true,
+        data: { beneficiary: addr, scheduleIds, contractId: req.contractId },
+      });
+    }
+
+    // Stub fallback: contract not configured.
     res.json({
       success: true,
-      data: { beneficiary: addr, scheduleIds: [], contractId: req.contractId },
+      data: {
+        beneficiary: addr,
+        scheduleIds: [],
+        contractId: req.contractId,
+        note: 'Set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY to read live data.',
+      },
     });
   } catch (err) {
     next(err);
