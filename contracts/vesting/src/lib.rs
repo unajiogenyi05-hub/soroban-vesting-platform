@@ -1733,6 +1733,53 @@ mod tests {
         assert_eq!(id, 1);
     }
 
+    /// After transfer_admin, the old admin cannot call create_schedule.
+    ///
+    /// transfer_admin() stores new_admin in instance storage. require_admin()
+    /// then reads that value and calls require_auth() on it. The old admin's
+    /// auth can no longer satisfy that requirement so create_schedule must panic.
+    ///
+    /// This test reproduces the scenario with MockAuth so only the old admin's
+    /// auth is provided; the new admin's auth is intentionally absent.
+    #[test]
+    #[should_panic]
+    fn test_transfer_admin_old_admin_loses_create_schedule() {
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        use soroban_sdk::IntoVal;
+
+        let (env, vesting_id, old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+
+        // Transfer admin: new_admin is now the admin, old_admin is not.
+        vesting.transfer_admin(&new_admin);
+        assert_eq!(vesting.get_admin(), new_admin);
+
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        // Provide only the old admin's auth — new_admin auth is absent.
+        // require_admin() now checks new_admin, so this call must panic.
+        env.mock_auths(&[MockAuth {
+            address: &old_admin,
+            invoke: &MockAuthInvoke {
+                contract: &vesting_id,
+                fn_name: "create_schedule",
+                args: (params.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        vesting.create_schedule(&params);
+    }
+
     // ── schedule_count increments ────────────────────────────────────────────
 
     #[test]
@@ -2024,6 +2071,22 @@ mod tests {
         // Fully claim schedule 2 at t=100
         vesting.claim(&id2);
         assert_eq!(vesting.get_claimed_by_beneficiary(&beneficiary), 300_000);
+    }
+
+    // ── revoke on a non-existent schedule ID must panic ──────────────────────
+    //
+    // revoke() calls try_revoke() which returns Err(VestingError::ScheduleNotFound)
+    // when the schedule ID does not exist in persistent storage. revoke() then
+    // calls panic_with_error! with that error, which should panic.
+    // This test ensures the guard is exercised (previously untested).
+
+    #[test]
+    #[should_panic]
+    fn test_revoke_nonexistent_schedule_panics() {
+        let (env, vesting_id, admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        // Schedule ID 999 was never created — must panic with ScheduleNotFound.
+        vesting.revoke(&999u64, &admin);
     }
 
     // ── double-revoke must error with ScheduleNotActive ───────────────────────
