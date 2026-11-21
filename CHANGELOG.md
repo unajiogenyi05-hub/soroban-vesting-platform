@@ -368,6 +368,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `testEnvironment: "node"`, `coverageDirectory: "coverage"`, and
   `collectCoverageFrom: ["src/**/*.js"]` (#275).
 
+### Added — 2026-10-17
+
+- contracts/vesting/src/lib.rs: `test_multisig_revoke_schedule` e2e test (#277).
+  Deploys a 2-of-3 multisig as the vesting admin, creates a schedule via a
+  multisig `create_schedule` proposal, then submits a second proposal for
+  `ProposalAction::Call { target: vesting, function: "revoke", args: [schedule_id, treasury] }`,
+  confirms ×2, and executes. Asserts `schedule.status == Revoked`, treasury
+  received all 100 000 unvested tokens, beneficiary received 0 (nothing vested
+  at t=0), and vesting contract holds 0 tokens after revoke. This covers the
+  most common admin use-case — revoke via multisig — which was not tested by the
+  existing `test_multisig_admin_flow` (pause) or `test_multisig_create_schedule`.
+
 ### Changed — 2026-10-16
 
 - contracts/token/src/lib.rs: added `///` doc comments to all 18 public
