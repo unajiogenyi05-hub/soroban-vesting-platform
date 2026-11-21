@@ -330,6 +330,7 @@ contracts, plus how to filter them with Soroban RPC `getEvents`.
 | `("created",)` | `(id, beneficiary, total_amount, token_address)` | `create_schedule` |
 | `("claimed",)` | `(schedule_id, beneficiary, amount)` | `claim` |
 | `("revoked",)` | `(schedule_id, unvested)` | `revoke` |
+| `("cancelld",)` | `(schedule_id, total_amount)` | `cancel_schedule` |
 | `("paused",)` | `()` | `pause` |
 | `("unpaused",)` | `()` | `unpause` |
 | `("admXfer",)` | `(old_admin, new_admin)` | `transfer_admin` |
