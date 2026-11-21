@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-17
 
+- types/vesting.d.ts, types/token.d.ts, types/multisig.d.ts: TypeScript type
+  definitions for the vesting, token, and multisig API response shapes (#295).
+  `types/vesting.d.ts` exports `ScheduleStatus`, `VestingSchedule`,
+  `ClaimableAmount`, `CreateScheduleParams`, `BeneficiarySchedules`,
+  `ScheduleCount`, and `ApiResponse<T>`. Types mirror the `VestingSchedule`
+  struct and `ScheduleStatus` enum in `contracts/vesting/src/lib.rs`; `i128`
+  amounts are typed as `string` to avoid JavaScript's 53-bit integer limit.
+  `types/token.d.ts` exports `TokenInfo`, `TokenBalance`, `TokenAllowance`,
+  `MintParams`, `BurnParams`, `TransferParams`, `ApproveParams`, and
+  `ApiResponse<T>`. Reflects SEP-0041 token contract and
+  `backend/src/routes/token.js` response shapes.
+  `types/multisig.d.ts` exports `ProposalStatus`, `ProposalAction`,
+  `CallData`, `Proposal`, `OwnersResponse`, `ThresholdResponse`,
+  `ProposalCount`, `SubmitProposalParams`, `ConfirmParams`,
+  `RevokeConfirmParams`, `ExecuteParams`, `CancelParams`, and
+  `ApiResponse<T>`. `ProposalAction` is a discriminated union matching the
+  four on-chain `ProposalAction` variants. README updated with types directory,
+  layout entry, and usage example.
+
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
   Documents every `panic_with_error!` call in the vesting contract source with
   the function name, `VestingError` variant, numeric error code, and the

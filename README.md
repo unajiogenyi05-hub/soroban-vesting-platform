@@ -101,6 +101,10 @@ soroban-vesting-platform/
 │   ├── architecture.md
 │   ├── faq.md            # Common integration questions answered
 │   └── testnet-demo.md   # Manual walkthrough
+├── types/
+│   ├── vesting.d.ts      # TypeScript types for vesting API responses
+│   ├── token.d.ts        # TypeScript types for token API responses
+│   └── multisig.d.ts     # TypeScript types for multisig API responses
 ├── .github/workflows/ci.yml
 ├── .env.example
 ├── Cargo.toml            # Workspace root
@@ -408,6 +412,31 @@ cargo test --all
 
 # Build WASM
 stellar contract build
+```
+
+## TypeScript type definitions
+
+The `types/` directory contains `.d.ts` files for TypeScript consumers of the
+backend API. Import them directly — no build step is required.
+
+| File | Covers |
+|------|--------|
+| [`types/vesting.d.ts`](types/vesting.d.ts) | `VestingSchedule`, `ScheduleStatus`, `CreateScheduleParams`, `ClaimableAmount`, `BeneficiarySchedules` |
+| [`types/token.d.ts`](types/token.d.ts) | `TokenInfo`, `TokenBalance`, `TokenAllowance`, `MintParams`, `TransferParams`, `ApproveParams` |
+| [`types/multisig.d.ts`](types/multisig.d.ts) | `Proposal`, `ProposalStatus`, `ProposalAction`, `CallData`, `SubmitProposalParams`, `ConfirmParams` |
+
+All three files export a shared `ApiResponse<T>` generic matching the
+`{ success, data, error? }` envelope every backend route returns.
+
+```ts
+import type { ApiResponse, VestingSchedule } from './types/vesting';
+
+const res: ApiResponse<VestingSchedule> = await fetch('/api/vesting/schedule/1')
+  .then(r => r.json());
+
+if (res.success) {
+  console.log(res.data.beneficiary, res.data.totalAmount);
+}
 ```
 
 ---
