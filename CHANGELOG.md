@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-11-21
 
+- backend/src/routes/token.js: `GET /api/token/info` now calls
+  `simulateContractCall` four times in parallel (`Promise.all`) for `name()`,
+  `symbol()`, `decimals()`, and `total_supply()` when `TOKEN_CONTRACT_ID` and
+  `SOURCE_SECRET_KEY` are set (#270). Each result is decoded via `scValToNative`;
+  `decimals` is cast to `Number`, `totalSupply` is converted to string. Falls
+  back to hardcoded stub `{ name: 'Vesting Token', symbol: 'VEST', decimals: 7,
+  totalSupply: 0, note }` when either env var is absent. Updated `token.test.js`
+  with expanded describe blocks: stub returns all four fields with correct values
+  and `note` field without calling simulate; live call asserts all four simulate
+  calls are made with the correct method names, returned values are merged, and
+  `note` is absent; RPC error propagates to 500.
+
 - backend/src/routes/vesting.js: `GET /api/vesting/count` now calls
   `simulateContractCall` with method `schedule_count` (no args) when
   `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are set (#268). Decodes the
