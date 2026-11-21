@@ -358,6 +358,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `testEnvironment: "node"`, `coverageDirectory: "coverage"`, and
   `collectCoverageFrom: ["src/**/*.js"]` (#275).
 
+### Changed — 2026-10-17
+
+- .github/workflows/ci.yml: backend CI test step changed from `npm test
+  --if-present` to `npx jest --coverage --forceExit` so coverage data is
+  collected on every CI run (#275). The coverage report is uploaded as a
+  GitHub Actions artifact (`backend-coverage`, 14-day retention).
+- backend/package.json: added `jest` configuration block with
+  `testEnvironment: "node"`, `coverageDirectory: "coverage"`, and
+  `collectCoverageFrom: ["src/**/*.js"]` (#275).
+
 ### Changed — 2026-10-16
 
 - contracts/token/src/lib.rs: added `///` doc comments to all 18 public
