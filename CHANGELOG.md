@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Tests
-- contracts/vesting/src/lib.rs: `test_revoke_nonexistent_schedule_panics` —
-  verifies that calling `revoke()` with a non-existent schedule ID panics with
-  `VestingError::ScheduleNotFound`, exercising the previously untested guard
-  in `try_revoke()` (#243).
+- contracts/vesting/src/lib.rs: `test_transfer_admin_old_admin_loses_create_schedule` —
+  verifies that after `transfer_admin()`, the old admin's auth no longer satisfies
+  `require_admin()` and a `create_schedule` call with only the old admin's auth
+  panics. Closes the gap left by the existing `test_transfer_admin` which only
+  checked `get_admin()` (#245).
 
 ### Added — 2026-11-19
 
