@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- contracts/multisig/Cargo.toml: `proptest = { version = "1.11.0", ... }` as a
+  dev-dependency, following the same pattern used in contracts/vesting (#246).
+
+### Tests
+- contracts/multisig/src/lib.rs: `prop_confirmation_count_never_exceeds_owner_count`
+  in a new `prop_tests` module — proptest verifying that for any N owners (1–5)
+  and any confirming subset, `confirmation_count <= N`. The "already confirmed"
+  guard in `confirm()` ensures each owner contributes at most 1 to the count
+  (#246).
+
 ### Added — 2026-11-19
 
 - docs/events.md: reference for every event the token, vesting and multisig

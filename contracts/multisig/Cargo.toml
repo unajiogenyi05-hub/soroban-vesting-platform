@@ -14,3 +14,4 @@ soroban-sdk = { workspace = true }
 common = { path = "../common" }
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+proptest = { version = "1.11.0", default-features = false, features = ["std"] }
