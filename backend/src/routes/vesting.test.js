@@ -1,29 +1,25 @@
 'use strict';
 
 const request = require('supertest');
+const { Keypair, nativeToScVal, scValToNative, StrKey } = require('@stellar/stellar-sdk');
 
 // Stub stellar service before requiring the app so routes don't need real RPC.
 const mockSimulate = jest.fn().mockResolvedValue({ result: { retval: {} } });
 
 jest.mock('../services/stellar', () => ({
-  simulateContractCall: mockSimulate,
+  simulateContractCall: jest.fn().mockResolvedValue({ result: 'stub' }),
+  validateStellarAddress: jest.fn((addr) => typeof addr === 'string' && addr.startsWith('G') && addr.length >= 56),
   NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
   RPC_URL: 'https://soroban-testnet.stellar.org',
 }));
 
-// Mock stellar-sdk so Keypair.fromSecret, nativeToScVal, scValToNative are controlled.
-jest.mock('@stellar/stellar-sdk', () => ({
-  Keypair: {
-    fromSecret: jest.fn().mockReturnValue({ publicKey: () => 'GPUBKEY' }),
-  },
-  nativeToScVal: jest.fn().mockReturnValue('mockScVal'),
-  scValToNative: jest.fn().mockReturnValue({}),
-  SorobanRpc: { Server: jest.fn() },
-  Networks: { TESTNET: 'Test SDF Network ; September 2015', PUBLIC: 'Public Global Stellar Network ; September 2015' },
-  TransactionBuilder: jest.fn(),
-  BASE_FEE: '100',
-  Contract: jest.fn(),
-}));
+const { simulateContractCall } = require('../services/stellar');
+
+// Generate a valid Stellar public key for use in test fixtures.
+const VALID_ADDRESS = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
+const VALID_ADDRESS_2 = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 2));
+const VALID_ADDRESS_3 = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 3));
+const INVALID_ADDRESS = 'GABC123';
 
 // Provide a contractId via env so contractIdMiddleware passes.
 process.env.VESTING_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
@@ -77,24 +73,80 @@ describe('Vesting routes', () => {
       const res = await request(app).get('/api/vesting/schedule/1');
       expect(res.status).toBe(500);
     });
+
+    it('returns 400 when schedule id is not numeric', async () => {
+      const res = await request(app).get('/api/vesting/schedule/abc');
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('error', 'scheduleId must be a positive integer');
+    });
+
+    it('returns 400 when schedule id is negative', async () => {
+      const res = await request(app).get('/api/vesting/schedule/-1');
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('error', 'scheduleId must be a positive integer');
+    });
   });
 
   // ── GET /claimable/:id ─────────────────────────────────────────────────────
   describe('GET /api/vesting/claimable/:id', () => {
-    it('returns claimable stub', async () => {
+    it('returns claimable stub when contract configuration is absent', async () => {
+      const previousContractId = process.env.VESTING_CONTRACT_ID;
+      const previousSourceSecret = process.env.SOURCE_SECRET_KEY;
+      simulateContractCall.mockClear();
+      delete process.env.VESTING_CONTRACT_ID;
+      delete process.env.SOURCE_SECRET_KEY;
+
       const res = await request(app).get('/api/vesting/claimable/1');
+
+      if (previousContractId === undefined) delete process.env.VESTING_CONTRACT_ID;
+      else process.env.VESTING_CONTRACT_ID = previousContractId;
+      if (previousSourceSecret === undefined) delete process.env.SOURCE_SECRET_KEY;
+      else process.env.SOURCE_SECRET_KEY = previousSourceSecret;
+
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('claimableAmount');
+      expect(res.body.data.claimableAmount).toBe(0);
+      expect(res.body.data).toHaveProperty('note');
+      expect(simulateContractCall).not.toHaveBeenCalled();
+    });
+
+    it('simulates get_claimable and returns the parsed on-chain amount', async () => {
+      const previousContractId = process.env.VESTING_CONTRACT_ID;
+      const previousSourceSecret = process.env.SOURCE_SECRET_KEY;
+      const contractId = 'CTEST0000000000000000000000000000000000000000000000000000';
+      const sourceSecret = Keypair.random().secret();
+      simulateContractCall.mockClear();
+      process.env.VESTING_CONTRACT_ID = contractId;
+      process.env.SOURCE_SECRET_KEY = sourceSecret;
+      simulateContractCall.mockResolvedValueOnce({
+        result: { retval: nativeToScVal(42000n, { type: 'i128' }) },
+      });
+
+      const res = await request(app).get('/api/vesting/claimable/1');
+
+      if (previousContractId === undefined) delete process.env.VESTING_CONTRACT_ID;
+      else process.env.VESTING_CONTRACT_ID = previousContractId;
+      if (previousSourceSecret === undefined) delete process.env.SOURCE_SECRET_KEY;
+      else process.env.SOURCE_SECRET_KEY = previousSourceSecret;
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.claimableAmount).toBe('42000');
+      expect(simulateContractCall).toHaveBeenCalledWith(expect.objectContaining({
+        contractId,
+        method: 'get_claimable',
+        args: [expect.anything()],
+        sourceKeypair: expect.any(Object),
+      }));
+      expect(scValToNative(simulateContractCall.mock.calls[0][0].args[0])).toBe(1n);
     });
   });
 
   // ── POST /schedule ─────────────────────────────────────────────────────────
   describe('POST /api/vesting/schedule', () => {
     const valid = {
-      from: 'GABC1234567890123456789012345678901234567890123456789012',
-      beneficiary: 'GDEF1234567890123456789012345678901234567890123456789012',
-      tokenAddress: 'GHIJ1234567890123456789012345678901234567890123456789012',
+      from: VALID_ADDRESS,
+      beneficiary: VALID_ADDRESS_2,
+      tokenAddress: VALID_ADDRESS_3,
       totalAmount: 100000,
       totalDuration: 100,
     };
@@ -118,6 +170,30 @@ describe('Vesting routes', () => {
       expect(res.status).toBe(400);
     });
 
+    it('returns 400 when from is an invalid Stellar address', async () => {
+      const res = await request(app)
+        .post('/api/vesting/schedule')
+        .send({ ...valid, from: INVALID_ADDRESS });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('invalid Stellar address: from');
+    });
+
+    it('returns 400 when beneficiary is an invalid Stellar address', async () => {
+      const res = await request(app)
+        .post('/api/vesting/schedule')
+        .send({ ...valid, beneficiary: INVALID_ADDRESS });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('invalid Stellar address: beneficiary');
+    });
+
+    it('returns 400 when tokenAddress is an invalid Stellar address', async () => {
+      const res = await request(app)
+        .post('/api/vesting/schedule')
+        .send({ ...valid, tokenAddress: INVALID_ADDRESS });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('invalid Stellar address: tokenAddress');
+    });
+
     it('returns 400 when cliffDuration exceeds totalDuration', async () => {
       const res = await request(app)
         .post('/api/vesting/schedule')
@@ -131,15 +207,23 @@ describe('Vesting routes', () => {
     it('returns 202 with valid body', async () => {
       const res = await request(app)
         .post('/api/vesting/claim')
-        .send({ scheduleId: 1, beneficiary: 'GABC123' });
+        .send({ scheduleId: 1, beneficiary: VALID_ADDRESS });
       expect(res.status).toBe(202);
       expect(res.body.success).toBe(true);
+    });
+
+    it('returns 400 when beneficiary is an invalid Stellar address', async () => {
+      const res = await request(app)
+        .post('/api/vesting/claim')
+        .send({ scheduleId: 1, beneficiary: INVALID_ADDRESS });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('invalid Stellar address: beneficiary');
     });
 
     it('returns 400 when scheduleId is missing', async () => {
       const res = await request(app)
         .post('/api/vesting/claim')
-        .send({ beneficiary: 'GABC123' });
+        .send({ beneficiary: VALID_ADDRESS });
       expect(res.status).toBe(400);
     });
 
@@ -156,9 +240,17 @@ describe('Vesting routes', () => {
     it('returns 202 with valid body', async () => {
       const res = await request(app)
         .post('/api/vesting/revoke')
-        .send({ scheduleId: 1, recipient: 'GABC123' });
+        .send({ scheduleId: 1, recipient: VALID_ADDRESS });
       expect(res.status).toBe(202);
       expect(res.body.success).toBe(true);
+    });
+
+    it('returns 400 when recipient is an invalid Stellar address', async () => {
+      const res = await request(app)
+        .post('/api/vesting/revoke')
+        .send({ scheduleId: 1, recipient: INVALID_ADDRESS });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('invalid Stellar address: recipient');
     });
 
     it('returns 400 when fields are missing', async () => {
@@ -183,8 +275,7 @@ describe('Vesting routes', () => {
   // ── GET /beneficiary/:addr — stub fallback ────────────────────────────────
   describe('GET /api/vesting/beneficiary/:addr — stub fallback', () => {
     it('returns 200 with success: true and correct beneficiary address', async () => {
-      delete process.env.SOURCE_SECRET_KEY;
-      const addr = 'GABC123';
+      const addr = VALID_ADDRESS;
       const res = await request(app).get(`/api/vesting/beneficiary/${addr}`);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -192,23 +283,20 @@ describe('Vesting routes', () => {
     });
 
     it('returns scheduleIds as an empty array by default', async () => {
-      delete process.env.SOURCE_SECRET_KEY;
-      const res = await request(app).get('/api/vesting/beneficiary/GABC123');
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDRESS}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data.scheduleIds)).toBe(true);
       expect(res.body.data.scheduleIds).toHaveLength(0);
     });
 
     it('includes contractId in the response data', async () => {
-      delete process.env.SOURCE_SECRET_KEY;
-      const res = await request(app).get('/api/vesting/beneficiary/GABC123');
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDRESS}`);
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty('contractId');
     });
 
     it('reflects the address param in the beneficiary field for different addresses', async () => {
-      delete process.env.SOURCE_SECRET_KEY;
-      const addr = 'GDEF456789012345678901234567890123456789012345678901234567';
+      const addr = VALID_ADDRESS_2;
       const res = await request(app).get(`/api/vesting/beneficiary/${addr}`);
       expect(res.status).toBe(200);
       expect(res.body.data.beneficiary).toBe(addr);
@@ -219,7 +307,7 @@ describe('Vesting routes', () => {
       delete process.env.VESTING_CONTRACT_ID;
       process.env.VESTING_CONTRACT_ID = savedId;
       const res = await request(app)
-        .get('/api/vesting/beneficiary/GABC123')
+        .get(`/api/vesting/beneficiary/${VALID_ADDRESS}`)
         .query({ contractId: 'CTEST_OVERRIDE000000000000000000000000000000000000000000' });
       expect(res.status).toBe(200);
       expect(res.body.data.contractId).toBe('CTEST_OVERRIDE000000000000000000000000000000000000000000');

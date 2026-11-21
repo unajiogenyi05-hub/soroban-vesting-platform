@@ -45,13 +45,13 @@ Returns the new schedule ID (u64, increments from 1).
 
 Authorization: admin.
 
-**Panics:**
-- `"amount must be positive"` — `total_amount ≤ 0`
-- `"duration must be > 0"` — `total_duration == 0`
-- `"cliff exceeds duration"` — `cliff_duration > total_duration`
-- `"start_time + cliff_duration overflows u64"` — arithmetic overflow check
-- `"start_time + total_duration overflows u64"` — arithmetic overflow check
-- `"contract is paused"` — contract is paused
+**Panics (error codes):**
+- `VestingError::AmountMustBePositive` (1) — `total_amount ≤ 0`
+- `VestingError::DurationMustBePositive` (2) — `total_duration == 0`
+- `VestingError::CliffExceedsDuration` (3) — `cliff_duration > total_duration`
+- `VestingError::StartPlusCliffOverflow` (4) — `start_time + cliff_duration` overflows `u64`
+- `VestingError::StartPlusDurationOverflow` (5) — `start_time + total_duration` overflows `u64`
+- `VestingError::ContractIsPaused` (9) — contract is paused
 
 **Events:** `("created",)` → `(id: u64, beneficiary: Address, total_amount: i128, token_address: Address)`
 
@@ -67,11 +67,11 @@ Returns the amount transferred.
 
 Authorization: beneficiary of the schedule.
 
-**Panics:**
-- `"schedule not found"` — schedule ID does not exist
-- `"schedule is not active"` — schedule is Revoked or Completed
-- `"nothing to claim"` — vested amount equals already-claimed amount
-- `"contract is paused"` — contract is paused
+**Panics (error codes):**
+- `VestingError::ScheduleNotFound` (6) — schedule ID does not exist
+- `VestingError::ScheduleNotActive` (7) — schedule is Revoked or Completed
+- `VestingError::NothingToClaim` (8) — vested amount equals already-claimed amount
+- `VestingError::ContractIsPaused` (9) — contract is paused
 
 **Events:** `("claimed",)` → `(schedule_id: u64, beneficiary: Address, amount: i128)`
 
@@ -91,11 +91,56 @@ Returns the unvested amount returned to `recipient`.
 
 Authorization: admin.
 
-**Panics:**
-- `"schedule not found"` — schedule ID does not exist
-- `"schedule is not active"` — schedule is already Revoked or Completed
+**Panics (error codes):**
+- `VestingError::ScheduleNotFound` (6) — schedule ID does not exist
+- `VestingError::ScheduleNotActive` (7) — schedule is already Revoked or Completed
 
 **Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)`
+
+---
+
+### `cancel_schedule(env, schedule_id: u64, recipient: Address) -> i128`
+
+Cancels an active vesting schedule that has **not yet started**
+(`now < start_time`). The full `total_amount` is returned to `recipient`
+and the schedule status is set to `Cancelled`.
+
+For schedules that have already started, use `revoke` instead.
+
+State is updated before token transfer (checks-effects-interactions pattern):
+
+1. Validates the schedule is `Active` and `now < start_time`.
+2. Sets status to `Cancelled` and writes to persistent storage.
+3. Transfers `total_amount` from the contract to `recipient`.
+4. Emits the `("cancelld",)` event.
+
+Returns `total_amount`.
+
+Authorization: admin.
+
+**Panics:**
+- `VestingError::ScheduleNotFound` — schedule ID does not exist
+- `VestingError::ScheduleNotActive` — schedule is not `Active` (already Revoked, Completed, or Cancelled)
+- `VestingError::ScheduleNotStarted` — `now >= start_time` (use `revoke` for in-progress schedules)
+
+**Events:** `("cancelld",)` → `(schedule_id: u64, total_amount: i128)`
+### `batch_revoke(env, schedule_ids: Vec<u64>, recipient: Address) -> Vec<i128>`
+
+Revokes multiple schedules for a beneficiary in a single transaction. Admin
+auth is required once and covers the whole batch. Each schedule in
+`schedule_ids` is revoked using the same logic as `revoke`: vested-but-unclaimed
+tokens go to the beneficiary and the unvested portion goes to `recipient`.
+
+Schedules that are missing or not `Active` are skipped (their unvested amount is
+`0`), so a partial batch still revokes the eligible schedules rather than
+failing entirely.
+
+Returns a `Vec<i128>` of unvested amounts, one per input ID, in the same order.
+
+Authorization: admin.
+
+**Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)` for each
+schedule that was actually revoked.
 
 ---
 
@@ -157,7 +202,7 @@ Authorization: current beneficiary of the schedule.
 
 Returns the full schedule struct. Read-only; does not extend TTL.
 
-**Panics:** `"schedule not found"`
+**Panics:** `VestingError::ScheduleNotFound` (6)
 
 ---
 
@@ -166,7 +211,20 @@ Returns the full schedule struct. Read-only; does not extend TTL.
 Returns the vested-but-unclaimed amount at the current ledger timestamp.
 Returns 0 if nothing is claimable. Read-only; does not extend TTL.
 
-**Panics:** `"schedule not found"`
+**Panics:** `VestingError::ScheduleNotFound` (6)
+
+---
+
+### `get_claimable_at(env, schedule_id: u64, timestamp: u64) -> i128`
+
+Returns the projected claimable amount for a schedule at an arbitrary
+`timestamp`. Useful for dashboards that want to show future vesting
+projections without waiting for that ledger.
+
+Computes `vested_amount(timestamp) − claimed_amount`, clamped to 0.
+Read-only — does **not** bump the instance or persistent TTL.
+
+**Panics:** `"schedule not found"` — schedule ID does not exist
 
 ---
 
@@ -190,7 +248,7 @@ no schedules. Read-only; does not extend TTL.
 
 Returns the current admin address. Read-only; does not extend TTL.
 
-**Panics:** `"not initialized"`
+**Panics:** `"not initialized"` (storage key missing — contract not deployed correctly)
 
 ---
 
@@ -207,6 +265,22 @@ Read-only; does not extend TTL.
 
 ---
 
+### `get_schedules_paginated(env, offset: u64, limit: u64) -> Vec<VestingSchedule>`
+
+Returns a page of schedules ordered by ID ascending. `offset` is the number of
+schedules to skip (0-based); `limit` is the maximum number to return. Only
+schedules that exist in storage are included, so gaps are skipped.
+
+Use this instead of loading every schedule when you only need a page — it has
+no write footprint and does not extend any TTL, so it is safe to call
+repeatedly for large deployments.
+
+**Panics:** none.
+
+Read-only; does not extend TTL.
+
+---
+
 ### `get_unvested_amount(env, schedule_id: u64) -> i128`
 
 Returns `total_amount - vested_amount(now)`, clamped to `0`.  Represents the
@@ -214,7 +288,7 @@ amount that would be returned to the recipient if `revoke()` were called at
 this instant.  Returns `0` once the schedule is fully vested.
 Read-only; does not extend TTL.
 
-**Panics:** `"schedule not found"` — schedule ID does not exist
+**Panics:** `VestingError::ScheduleNotFound` (6) — schedule ID does not exist
 
 ---
 
@@ -273,14 +347,40 @@ See [docs/ttl.md](../../docs/ttl.md).
 
 ## Events
 
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
+
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("created",)` | `(id, beneficiary, total_amount, token_address)` | `create_schedule` |
 | `("claimed",)` | `(schedule_id, beneficiary, amount)` | `claim` |
 | `("revoked",)` | `(schedule_id, unvested)` | `revoke` |
+| `("cancelld",)` | `(schedule_id, total_amount)` | `cancel_schedule` |
 | `("paused",)` | `()` | `pause` |
 | `("unpaused",)` | `()` | `unpause` |
 | `("admXfer",)` | `(old_admin, new_admin)` | `transfer_admin` |
+| `("benXfer",)` | `(schedule_id, old_beneficiary, new_beneficiary)` | `transfer_beneficiary` |
+
+---
+
+## Error Codes
+
+The contract uses a `#[contracterror]` enum (`VestingError`) so callers receive
+a stable `u32` code instead of matching on string messages. All `panic_with_error!`
+calls map to one of the codes below.
+
+| Code | Variant | Triggered by |
+|------|---------|--------------|
+| 1 | `AmountMustBePositive` | `create_schedule` / `batch_create_schedule` — `total_amount ≤ 0` |
+| 2 | `DurationMustBePositive` | `create_schedule` / `batch_create_schedule` — `total_duration == 0` |
+| 3 | `CliffExceedsDuration` | `create_schedule` / `batch_create_schedule` — `cliff_duration > total_duration` |
+| 4 | `StartPlusCliffOverflow` | `create_schedule` / `batch_create_schedule` — `start_time + cliff_duration` overflows `u64` |
+| 5 | `StartPlusDurationOverflow` | `create_schedule` / `batch_create_schedule` — `start_time + total_duration` overflows `u64` |
+| 6 | `ScheduleNotFound` | Any function that loads a schedule by ID — ID does not exist |
+| 7 | `ScheduleNotActive` | `claim`, `revoke` — schedule status is not `Active` |
+| 8 | `NothingToClaim` | `claim` — vested amount equals already-claimed amount |
+| 9 | `ContractIsPaused` | `create_schedule`, `batch_create_schedule`, `claim` — contract is paused |
+| 10 | `BatchEmpty` | `batch_create_schedule` — empty `params` vector |
 
 ---
 
@@ -295,6 +395,27 @@ vested(now):
 
 where `elapsed = now - start_time`.  
 `saturating_mul` is used to prevent i128 overflow for large amounts × elapsed.
+
+### Rounding
+
+The vesting formula uses integer division:
+
+```
+vested = elapsed * total_amount / total_duration
+```
+
+Integer division truncates toward zero (floor division for positive values), so
+the result is always rounded down.  The rounding error per call is at most
+`total_duration - 1` tokens — the remainder dropped by the division.
+
+**Worked example:**
+- `total_amount = 100`, `total_duration = 3`, `elapsed = 1`
+- `100 / 3 = 33` (1 token lost to rounding)
+
+**Implication:** the last claim may receive slightly more than intermediate
+claims, because the final claim picks up any tokens left over from the
+truncation of earlier claims.  Over the full schedule the beneficiary still
+receives at most `total_amount` in total.
 
 ---
 
@@ -372,3 +493,72 @@ the contract until the schedule completes.
 ### `ScheduleStatus`
 
 `Active` | `Revoked` | `Completed`
+
+---
+
+## Panic conditions
+
+The tables below list every `panic_with_error!` call in the contract source.
+Each row shows the function that raises it, the stable error code (from the
+`VestingError` enum), and the condition that triggers it.
+
+### `create_schedule` / `batch_create_schedule`
+
+| Error code | `VestingError` variant | Triggering condition |
+|:----------:|------------------------|----------------------|
+| 9 | `ContractIsPaused` | Contract is paused (`pause()` was called and `unpause()` was not) |
+| 1 | `AmountMustBePositive` | `params.total_amount <= 0` |
+| 2 | `DurationMustBePositive` | `params.total_duration == 0` |
+| 3 | `CliffExceedsDuration` | `params.cliff_duration > params.total_duration` |
+| 4 | `StartPlusCliffOverflow` | `params.start_time + params.cliff_duration` overflows `u64` |
+| 5 | `StartPlusDurationOverflow` | `params.start_time + params.total_duration` overflows `u64` |
+
+`batch_create_schedule` additionally raises:
+
+| Error code | `VestingError` variant | Triggering condition |
+|:----------:|------------------------|----------------------|
+| 10 | `BatchEmpty` | The `params` vector is empty |
+
+### `claim`
+
+| Error code | `VestingError` variant | Triggering condition |
+|:----------:|------------------------|----------------------|
+| 9 | `ContractIsPaused` | Contract is paused |
+| 6 | `ScheduleNotFound` | No schedule exists with the given `schedule_id` |
+| 7 | `ScheduleNotActive` | Schedule status is `Revoked` or `Completed` |
+| 8 | `NothingToClaim` | `vested_amount(now) - claimed_amount <= 0` |
+
+### `revoke`
+
+| Error code | `VestingError` variant | Triggering condition |
+|:----------:|------------------------|----------------------|
+| 6 | `ScheduleNotFound` | No schedule exists with the given `schedule_id` |
+| 7 | `ScheduleNotActive` | Schedule status is already `Revoked` or `Completed` |
+
+### `transfer_beneficiary`
+
+| Error code | `VestingError` variant | Triggering condition |
+|:----------:|------------------------|----------------------|
+| 9 | `ContractIsPaused` | Contract is paused |
+| 6 | `ScheduleNotFound` | No schedule exists with the given `schedule_id` |
+| 7 | `ScheduleNotActive` | Schedule status is `Revoked` or `Completed` |
+
+### `pause` / `unpause` / `transfer_admin`
+
+These functions panic with a Rust `expect` (not `VestingError`) when the
+contract has not been initialised (i.e., the `ADMIN` storage key is missing):
+
+| Panic message | Function | Triggering condition |
+|---------------|----------|----------------------|
+| `"not initialized"` | `transfer_admin`, `get_admin` | `ADMIN` key absent from instance storage |
+
+Admin-only functions (`pause`, `unpause`, `transfer_admin`, `create_schedule`,
+`revoke`) will also panic if the required authorization is not satisfied
+(`require_auth` failure), which the Soroban host surfaces as an auth error
+rather than a contract-level panic string.
+
+### Read-only getters
+
+| Error code | `VestingError` variant | Function | Triggering condition |
+|:----------:|------------------------|----------|----------------------|
+| 6 | `ScheduleNotFound` | `get_schedule`, `get_claimable`, `get_unvested_amount`, `get_claimed_by_beneficiary` | `schedule_id` does not exist |
