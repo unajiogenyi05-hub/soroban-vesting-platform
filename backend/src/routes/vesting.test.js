@@ -4,6 +4,8 @@ const request = require('supertest');
 const { Keypair, nativeToScVal, scValToNative, StrKey } = require('@stellar/stellar-sdk');
 
 // Stub stellar service before requiring the app so routes don't need real RPC.
+const mockSimulate = jest.fn().mockResolvedValue({ result: { retval: {} } });
+
 jest.mock('../services/stellar', () => ({
   simulateContractCall: jest.fn().mockResolvedValue({ result: 'stub' }),
   validateStellarAddress: jest.fn((addr) => typeof addr === 'string' && addr.startsWith('G') && addr.length >= 56),
@@ -25,13 +27,51 @@ process.env.VESTING_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000
 const app = require('../index');
 
 describe('Vesting routes', () => {
-  // ── GET /schedule/:id ──────────────────────────────────────────────────────
-  describe('GET /api/vesting/schedule/:id', () => {
-    it('returns schedule stub for a valid id', async () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+    const { scValToNative } = require('@stellar/stellar-sdk');
+    scValToNative.mockReturnValue({});
+  });
+
+  // ── GET /schedule/:id — stub fallback ──────────────────────────────────────
+  describe('GET /api/vesting/schedule/:id — stub fallback', () => {
+    it('returns schedule stub for a valid id when SOURCE_SECRET_KEY is not set', async () => {
+      delete process.env.SOURCE_SECRET_KEY;
       const res = await request(app).get('/api/vesting/schedule/1');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBe(1);
+      expect(res.body.data).toHaveProperty('note');
+      expect(mockSimulate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── GET /schedule/:id — live call ──────────────────────────────────────────
+  describe('GET /api/vesting/schedule/:id — live call', () => {
+    beforeEach(() => {
+      process.env.SOURCE_SECRET_KEY = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
+    });
+    afterEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('calls simulateContractCall with get_schedule and returns parsed schedule', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValue({ beneficiary: 'GABC', totalAmount: '1000' });
+
+      const res = await request(app).get('/api/vesting/schedule/5');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(5);
+      expect(res.body.data.beneficiary).toBe('GABC');
+      expect(res.body.data.contractId).toBe(process.env.VESTING_CONTRACT_ID);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'get_schedule' }));
+    });
+
+    it('propagates errors from simulateContractCall to the error handler', async () => {
+      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      const res = await request(app).get('/api/vesting/schedule/1');
+      expect(res.status).toBe(500);
     });
 
     it('returns 400 when schedule id is not numeric', async () => {
@@ -232,8 +272,8 @@ describe('Vesting routes', () => {
     });
   });
 
-  // ── GET /beneficiary/:addr ─────────────────────────────────────────────────
-  describe('GET /api/vesting/beneficiary/:addr', () => {
+  // ── GET /beneficiary/:addr — stub fallback ────────────────────────────────
+  describe('GET /api/vesting/beneficiary/:addr — stub fallback', () => {
     it('returns 200 with success: true and correct beneficiary address', async () => {
       const addr = VALID_ADDRESS;
       const res = await request(app).get(`/api/vesting/beneficiary/${addr}`);
@@ -246,6 +286,7 @@ describe('Vesting routes', () => {
       const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDRESS}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data.scheduleIds)).toBe(true);
+      expect(res.body.data.scheduleIds).toHaveLength(0);
     });
 
     it('includes contractId in the response data', async () => {
@@ -264,16 +305,60 @@ describe('Vesting routes', () => {
     it('returns 400 when contractId is missing from env and not supplied', async () => {
       const savedId = process.env.VESTING_CONTRACT_ID;
       delete process.env.VESTING_CONTRACT_ID;
-      // Reload the router with no env var so contractIdMiddleware fires.
-      // The existing app already has the env var baked in — query param override works.
-      // We test the query-param path instead by using a fresh contract id.
       process.env.VESTING_CONTRACT_ID = savedId;
-      // Supply contractId via query string — should succeed.
       const res = await request(app)
         .get(`/api/vesting/beneficiary/${VALID_ADDRESS}`)
         .query({ contractId: 'CTEST_OVERRIDE000000000000000000000000000000000000000000' });
       expect(res.status).toBe(200);
       expect(res.body.data.contractId).toBe('CTEST_OVERRIDE000000000000000000000000000000000000000000');
+    });
+  });
+
+  // ── GET /beneficiary/:addr — live call ────────────────────────────────────
+  describe('GET /api/vesting/beneficiary/:addr — live call', () => {
+    // Valid G-address: G + 55 base-32 chars
+    const VALID_ADDR = 'GBMOMCDFID6S4ALFZP36ZIVA3RXDEZ6K5IAD5K3IQ3UNYTZHQN4BPMEA';
+
+    beforeEach(() => {
+      process.env.SOURCE_SECRET_KEY = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
+    });
+    afterEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('calls simulateContractCall with get_beneficiary_schedules and returns parsed IDs', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValueOnce([BigInt(1), BigInt(5), BigInt(9)]);
+
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.beneficiary).toBe(VALID_ADDR);
+      expect(res.body.data.scheduleIds).toEqual([1, 5, 9]);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockSimulate).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'get_beneficiary_schedules' })
+      );
+    });
+
+    it('returns empty scheduleIds when the contract returns an empty Vec', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValueOnce([]);
+
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.scheduleIds).toEqual([]);
+    });
+
+    it('returns 400 for an invalid Stellar address', async () => {
+      const res = await request(app).get('/api/vesting/beneficiary/not-a-stellar-address');
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('error');
+      expect(mockSimulate).not.toHaveBeenCalled();
+    });
+
+    it('propagates errors from simulateContractCall to the error handler', async () => {
+      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
+      expect(res.status).toBe(500);
     });
   });
 
