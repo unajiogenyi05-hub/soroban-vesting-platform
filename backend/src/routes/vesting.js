@@ -15,6 +15,8 @@
  */
 
 const { Router } = require('express');
+const { Keypair, nativeToScVal, scValToNative } = require('@stellar/stellar-sdk');
+const { simulateContractCall } = require('../services/stellar');
 const logger = require('../logger');
 
 const router = Router();
@@ -36,15 +38,43 @@ function contractIdMiddleware(req, res, next) {
 
 /**
  * GET /api/vesting/schedule/:id
- * Returns on-chain schedule data (simulated read).
+ *
+ * When VESTING_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates
+ * `get_schedule(schedule_id)` on the live contract and returns the parsed
+ * VestingSchedule. Falls back to a stub otherwise.
  */
 router.get('/schedule/:id', contractIdMiddleware, async (req, res, next) => {
   try {
     const scheduleId = BigInt(req.params.id);
     logger.info(`get_schedule id=${scheduleId}`);
 
-    // In a full implementation this would call simulateContractCall.
-    // We return a documented stub so the frontend can be built against this shape.
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+      const idArg = nativeToScVal(scheduleId, { type: 'u64' });
+
+      const simResult = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'get_schedule',
+        args: [idArg],
+        sourceKeypair,
+      });
+
+      const schedule = scValToNative(simResult.result.retval);
+
+      logger.info(`get_schedule id=${scheduleId} result=${JSON.stringify(schedule)}`);
+      return res.json({
+        success: true,
+        data: {
+          ...schedule,
+          id: Number(scheduleId),
+          contractId: req.contractId,
+        },
+      });
+    }
+
+    // Stub fallback: contract not configured.
     res.json({
       success: true,
       data: {

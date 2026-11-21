@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-11-21
+
+- backend/src/routes/vesting.js: `GET /api/vesting/schedule/:id` now calls
+  `simulateContractCall` with method `get_schedule` and a `u64` schedule-ID arg
+  when `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are set (#267). Decodes the
+  `VestingSchedule` struct via `scValToNative` and merges it with `id` and
+  `contractId`. Falls back to the existing stub (with `note` field) when either
+  env var is absent. Updated `vesting.test.js` with two new live-call tests:
+  parsed schedule returned with correct `id` and `contractId`, RPC error
+  propagates to 500.
+
 ### Added — 2026-10-16
 
 - contracts/token/src/lib.rs: `transfer_admin()` now emits an `("admXfer",)`

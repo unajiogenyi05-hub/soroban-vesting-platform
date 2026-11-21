@@ -3,10 +3,26 @@
 const request = require('supertest');
 
 // Stub stellar service before requiring the app so routes don't need real RPC.
+const mockSimulate = jest.fn().mockResolvedValue({ result: { retval: {} } });
+
 jest.mock('../services/stellar', () => ({
-  simulateContractCall: jest.fn().mockResolvedValue({ result: 'stub' }),
+  simulateContractCall: mockSimulate,
   NETWORK_PASSPHRASE: 'Test SDF Network ; September 2015',
   RPC_URL: 'https://soroban-testnet.stellar.org',
+}));
+
+// Mock stellar-sdk so Keypair.fromSecret, nativeToScVal, scValToNative are controlled.
+jest.mock('@stellar/stellar-sdk', () => ({
+  Keypair: {
+    fromSecret: jest.fn().mockReturnValue({ publicKey: () => 'GPUBKEY' }),
+  },
+  nativeToScVal: jest.fn().mockReturnValue('mockScVal'),
+  scValToNative: jest.fn().mockReturnValue({}),
+  SorobanRpc: { Server: jest.fn() },
+  Networks: { TESTNET: 'Test SDF Network ; September 2015', PUBLIC: 'Public Global Stellar Network ; September 2015' },
+  TransactionBuilder: jest.fn(),
+  BASE_FEE: '100',
+  Contract: jest.fn(),
 }));
 
 // Provide a contractId via env so contractIdMiddleware passes.
@@ -15,13 +31,51 @@ process.env.VESTING_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000
 const app = require('../index');
 
 describe('Vesting routes', () => {
-  // ── GET /schedule/:id ──────────────────────────────────────────────────────
-  describe('GET /api/vesting/schedule/:id', () => {
-    it('returns schedule stub for a valid id', async () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSimulate.mockResolvedValue({ result: { retval: {} } });
+    const { scValToNative } = require('@stellar/stellar-sdk');
+    scValToNative.mockReturnValue({});
+  });
+
+  // ── GET /schedule/:id — stub fallback ──────────────────────────────────────
+  describe('GET /api/vesting/schedule/:id — stub fallback', () => {
+    it('returns schedule stub for a valid id when SOURCE_SECRET_KEY is not set', async () => {
+      delete process.env.SOURCE_SECRET_KEY;
       const res = await request(app).get('/api/vesting/schedule/1');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBe(1);
+      expect(res.body.data).toHaveProperty('note');
+      expect(mockSimulate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── GET /schedule/:id — live call ──────────────────────────────────────────
+  describe('GET /api/vesting/schedule/:id — live call', () => {
+    beforeEach(() => {
+      process.env.SOURCE_SECRET_KEY = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
+    });
+    afterEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('calls simulateContractCall with get_schedule and returns parsed schedule', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValue({ beneficiary: 'GABC', totalAmount: '1000' });
+
+      const res = await request(app).get('/api/vesting/schedule/5');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(5);
+      expect(res.body.data.beneficiary).toBe('GABC');
+      expect(res.body.data.contractId).toBe(process.env.VESTING_CONTRACT_ID);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'get_schedule' }));
+    });
+
+    it('propagates errors from simulateContractCall to the error handler', async () => {
+      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      const res = await request(app).get('/api/vesting/schedule/1');
+      expect(res.status).toBe(500);
     });
   });
 
@@ -158,11 +212,7 @@ describe('Vesting routes', () => {
     it('returns 400 when contractId is missing from env and not supplied', async () => {
       const savedId = process.env.VESTING_CONTRACT_ID;
       delete process.env.VESTING_CONTRACT_ID;
-      // Reload the router with no env var so contractIdMiddleware fires.
-      // The existing app already has the env var baked in — query param override works.
-      // We test the query-param path instead by using a fresh contract id.
       process.env.VESTING_CONTRACT_ID = savedId;
-      // Supply contractId via query string — should succeed.
       const res = await request(app)
         .get('/api/vesting/beneficiary/GABC123')
         .query({ contractId: 'CTEST_OVERRIDE000000000000000000000000000000000000000000' });
