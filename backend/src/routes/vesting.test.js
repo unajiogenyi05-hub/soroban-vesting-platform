@@ -296,7 +296,8 @@ describe('Vesting routes', () => {
     });
 
     it('reflects the address param in the beneficiary field for different addresses', async () => {
-      const addr = VALID_ADDRESS_2;
+      delete process.env.SOURCE_SECRET_KEY;
+      const addr = 'GDEF456789012345678901234567890123456789012345678901234567';
       const res = await request(app).get(`/api/vesting/beneficiary/${addr}`);
       expect(res.status).toBe(200);
       expect(res.body.data.beneficiary).toBe(addr);
@@ -364,6 +365,8 @@ describe('Vesting routes', () => {
 
   // ── GET /count ─────────────────────────────────────────────────────────────
   describe('GET /api/vesting/count', () => {
+    beforeEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
     it('returns 200 with success: true', async () => {
       const res = await request(app).get('/api/vesting/count');
       expect(res.status).toBe(200);
@@ -389,6 +392,51 @@ describe('Vesting routes', () => {
         .query({ contractId: overrideId });
       expect(res.status).toBe(200);
       expect(res.body.data.contractId).toBe(overrideId);
+    });
+
+    it('returns stub count 0 and note field when SOURCE_SECRET_KEY is absent', async () => {
+      const res = await request(app).get('/api/vesting/count');
+      expect(res.body.data.count).toBe(0);
+      expect(res.body.data).toHaveProperty('note');
+      expect(mockSimulate).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── GET /count — live call ─────────────────────────────────────────────────
+  describe('GET /api/vesting/count — live call', () => {
+    beforeEach(() => {
+      process.env.SOURCE_SECRET_KEY = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
+    });
+    afterEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('calls simulateContractCall with schedule_count and returns parsed count', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValueOnce(BigInt(42));
+
+      const res = await request(app).get('/api/vesting/count');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.count).toBe(42);
+      expect(res.body.data.contractId).toBe(process.env.VESTING_CONTRACT_ID);
+      expect(mockSimulate).toHaveBeenCalledTimes(1);
+      expect(mockSimulate).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'schedule_count', args: [] })
+      );
+    });
+
+    it('returns count 0 when the contract returns BigInt(0)', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      scValToNative.mockReturnValueOnce(BigInt(0));
+
+      const res = await request(app).get('/api/vesting/count');
+      expect(res.status).toBe(200);
+      expect(res.body.data.count).toBe(0);
+    });
+
+    it('propagates errors from simulateContractCall to the error handler', async () => {
+      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      const res = await request(app).get('/api/vesting/count');
+      expect(res.status).toBe(500);
     });
   });
 });

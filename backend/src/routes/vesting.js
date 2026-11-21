@@ -316,10 +316,42 @@ router.get('/beneficiary/:addr', contractIdMiddleware, async (req, res, next) =>
 
 /**
  * GET /api/vesting/count
+ *
+ * When VESTING_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates
+ * `schedule_count()` on the live contract and returns the parsed u64 count.
+ * Falls back to stub { count: 0 } otherwise.
  */
 router.get('/count', contractIdMiddleware, async (req, res, next) => {
   try {
-    res.json({ success: true, data: { count: 0, contractId: req.contractId } });
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+
+      const simResult = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'schedule_count',
+        args: [],
+        sourceKeypair,
+      });
+
+      // schedule_count() returns u64; scValToNative returns BigInt.
+      const raw = scValToNative(simResult.result.retval);
+      const count = Number(raw);
+
+      logger.info(`schedule_count contractId=${req.contractId} count=${count}`);
+      return res.json({ success: true, data: { count, contractId: req.contractId } });
+    }
+
+    // Stub fallback: contract not configured.
+    res.json({
+      success: true,
+      data: {
+        count: 0,
+        contractId: req.contractId,
+        note: 'Set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY to read live data.',
+      },
+    });
   } catch (err) {
     next(err);
   }
