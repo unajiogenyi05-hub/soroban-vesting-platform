@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-16
 
+- CONTRIBUTING.md: "Writing CHANGELOG entries" section (#293). Documents the Keep a Changelog format used by this project: which subsection to use (Added/Changed/Fixed/Removed), entry format with component and PR number, a concrete example matching existing entries, and guidance on when to skip an entry.
+
 - contracts/vesting/src/lib.rs: `get_unvested_amount(env, schedule_id) -> i128`
   view function (#99). Returns `total_amount - vested_amount(now)`, clamped to
   `0`. Replaces client-side computation for treasury dashboards that need to
