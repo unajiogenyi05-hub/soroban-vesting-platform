@@ -1,0 +1,8 @@
+{
+  "name": "soroban-vesting-frontend",
+  "private": true,
+  "devDependencies": {
+    "eslint": "8.57.0",
+    "html-validate": "8.29.0"
+  }
+}
