@@ -1733,6 +1733,53 @@ mod tests {
         assert_eq!(id, 1);
     }
 
+    /// After transfer_admin, the old admin cannot call create_schedule.
+    ///
+    /// transfer_admin() stores new_admin in instance storage. require_admin()
+    /// then reads that value and calls require_auth() on it. The old admin's
+    /// auth can no longer satisfy that requirement so create_schedule must panic.
+    ///
+    /// This test reproduces the scenario with MockAuth so only the old admin's
+    /// auth is provided; the new admin's auth is intentionally absent.
+    #[test]
+    #[should_panic]
+    fn test_transfer_admin_old_admin_loses_create_schedule() {
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        use soroban_sdk::IntoVal;
+
+        let (env, vesting_id, old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+
+        // Transfer admin: new_admin is now the admin, old_admin is not.
+        vesting.transfer_admin(&new_admin);
+        assert_eq!(vesting.get_admin(), new_admin);
+
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        // Provide only the old admin's auth — new_admin auth is absent.
+        // require_admin() now checks new_admin, so this call must panic.
+        env.mock_auths(&[MockAuth {
+            address: &old_admin,
+            invoke: &MockAuthInvoke {
+                contract: &vesting_id,
+                fn_name: "create_schedule",
+                args: (params.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        vesting.create_schedule(&params);
+    }
+
     // ── schedule_count increments ────────────────────────────────────────────
 
     #[test]
@@ -2024,6 +2071,22 @@ mod tests {
         // Fully claim schedule 2 at t=100
         vesting.claim(&id2);
         assert_eq!(vesting.get_claimed_by_beneficiary(&beneficiary), 300_000);
+    }
+
+    // ── revoke on a non-existent schedule ID must panic ──────────────────────
+    //
+    // revoke() calls try_revoke() which returns Err(VestingError::ScheduleNotFound)
+    // when the schedule ID does not exist in persistent storage. revoke() then
+    // calls panic_with_error! with that error, which should panic.
+    // This test ensures the guard is exercised (previously untested).
+
+    #[test]
+    #[should_panic]
+    fn test_revoke_nonexistent_schedule_panics() {
+        let (env, vesting_id, admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        // Schedule ID 999 was never created — must panic with ScheduleNotFound.
+        vesting.revoke(&999u64, &admin);
     }
 
     // ── double-revoke must error with ScheduleNotActive ───────────────────────
@@ -4378,6 +4441,58 @@ mod prop_tests {
             let sched = dummy(total_amount, start_time, 0, total_duration);
             let v = VestingContract::vested_amount(&sched, t);
             prop_assert_eq!(v, total_amount, "expected total={} at t={} (end={})", total_amount, t, end);
+        }
+
+        /// P5: claim then revoke conserves total_amount.
+        ///
+        /// For any valid schedule with a claim at t1 followed by a revoke at
+        /// t2 (clamped so t2 >= t1), the tokens received by both parties must
+        /// sum to total_amount:
+        ///
+        ///   claimed(t1) + revoke_return(t2) == total_amount
+        ///
+        /// where:
+        ///   claimed(t1)       = vested(t1)              (first claim gets all vested)
+        ///   revoke_return(t2) = total_amount - vested(t2)  (unvested at revoke time)
+        ///
+        /// This holds because revoke() pays the vested-but-unclaimed portion
+        /// (vested(t2) - claimed(t1)) to the beneficiary, plus claimed(t1) was
+        /// already paid, so the beneficiary receives vested(t2) in total and
+        /// the recipient receives total_amount - vested(t2).  Together they
+        /// equal total_amount.
+        #[test]
+        fn prop_claim_then_revoke_conserves_total(
+            total    in 1i128..=1_000_000i128,
+            duration in 1u64..=1_000u64,
+            t1       in 0u64..=1_000u64,
+            t2       in 0u64..=1_000u64,
+        ) {
+            // Clamp t2 so it is >= t1 (revoke cannot happen before claim).
+            let t2 = t1.max(t2);
+
+            let sched = dummy(total, 0, 0, duration);
+
+            // Amount the beneficiary claims at t1 (all vested-but-unclaimed).
+            let claimed = VestingContract::vested_amount(&sched, t1);
+
+            // After the claim, claimed_amount == claimed.  At t2 >= t1 the
+            // vested amount is >= claimed (vested is non-decreasing).
+            // revoke() returns total_amount - vested(t2) to the recipient, and
+            // pays the difference (vested(t2) - claimed) to the beneficiary.
+            let vested_at_revoke = VestingContract::vested_amount(&sched, t2);
+            let revoke_return = total - vested_at_revoke;
+
+            // Total flowing out of the contract == beneficiary receipts + recipient receipt.
+            // beneficiary receives: claimed (at t1) + (vested_at_revoke - claimed) (at revoke)
+            //                     = vested_at_revoke
+            // recipient receives:   revoke_return = total - vested_at_revoke
+            // sum:                  vested_at_revoke + (total - vested_at_revoke) == total
+            let conservation = claimed + (vested_at_revoke - claimed) + revoke_return;
+            prop_assert_eq!(
+                conservation, total,
+                "token conservation violated: claimed={claimed} vested_at_revoke={vested_at_revoke} \
+                 revoke_return={revoke_return} total={total} t1={t1} t2={t2} duration={duration}"
+            );
         }
     }
 }
