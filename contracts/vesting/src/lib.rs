@@ -2026,6 +2026,22 @@ mod tests {
         assert_eq!(vesting.get_claimed_by_beneficiary(&beneficiary), 300_000);
     }
 
+    // ── revoke on a non-existent schedule ID must panic ──────────────────────
+    //
+    // revoke() calls try_revoke() which returns Err(VestingError::ScheduleNotFound)
+    // when the schedule ID does not exist in persistent storage. revoke() then
+    // calls panic_with_error! with that error, which should panic.
+    // This test ensures the guard is exercised (previously untested).
+
+    #[test]
+    #[should_panic]
+    fn test_revoke_nonexistent_schedule_panics() {
+        let (env, vesting_id, admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        // Schedule ID 999 was never created — must panic with ScheduleNotFound.
+        vesting.revoke(&999u64, &admin);
+    }
+
     // ── double-revoke must error with ScheduleNotActive ───────────────────────
 
     #[test]
