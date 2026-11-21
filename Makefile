@@ -19,6 +19,7 @@ help:
 	@echo "    make build            Build all contracts (WASM via stellar contract build)"
 	@echo "    make build-optimized  Build + optimize WASM sizes"
 	@echo "    make test             Run all contract unit tests"
+	@echo "    make test-coverage    Run tarpaulin and produce HTML coverage report"
 	@echo "    make fmt              Format Rust code"
 	@echo "    make lint             fmt-check + clippy (--target wasm32v1-none)"
 	@echo "    make clean            Remove build artifacts"
@@ -83,6 +84,11 @@ check-env:
 	@test -n "$(TOKEN_CONTRACT_ID)" || (echo "Error: TOKEN_CONTRACT_ID is not set"; exit 1)
 	@test -n "$(MULTISIG_CONTRACT_ID)" || (echo "Error: MULTISIG_CONTRACT_ID is not set"; exit 1)
 	@echo "All required env vars set."
+
+# ── Test coverage ─────────────────────────────────────────────────────────────
+test-coverage:
+	cargo tarpaulin --all --engine llvm --out Html --output-dir coverage/
+	@echo "Coverage report: coverage/tarpaulin-report.html"
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:

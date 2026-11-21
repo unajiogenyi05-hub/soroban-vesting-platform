@@ -37,6 +37,11 @@ stellar contract build
 # Run all unit tests
 cargo test --all
 
+# Generate an HTML coverage report (requires cargo-tarpaulin)
+# Install once: cargo install cargo-tarpaulin
+make test-coverage
+# Report is written to coverage/tarpaulin-report.html
+
 # Lint
 cargo clippy --all --target wasm32v1-none -- -D warnings
 
