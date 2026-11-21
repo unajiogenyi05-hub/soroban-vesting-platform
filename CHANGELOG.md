@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-17
 
+- contracts/multisig/src/lib.rs: `get_proposals_paginated(env, offset, limit)`
+  view function (#287). Returns a `Vec<ProposalData>` page using a zero-based
+  offset and a limit. IDs are 1-based so `offset=0, limit=10` returns
+  proposals 1–10. Returns an empty Vec when `offset >= proposal_count()` or
+  `limit == 0`; truncates to the last existing proposal when
+  `offset + limit` exceeds the total. Archived persistent entries are silently
+  skipped so individual archival never causes a panic. No write footprint.
+  Six new tests: `test_paginated_first_page`, `test_paginated_second_page`,
+  `test_paginated_offset_beyond_total`, `test_paginated_no_proposals`,
+  `test_paginated_zero_limit`, `test_paginated_no_write_footprint`.
+  `contracts/multisig/README.md` updated with function entry and behaviour
+  table.
+
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
   Documents every `panic_with_error!` call in the vesting contract source with
   the function name, `VestingError` variant, numeric error code, and the
