@@ -213,6 +213,54 @@ Before opening a PR, confirm:
 
 ---
 
+## Writing CHANGELOG entries
+
+Every PR that changes behaviour, adds a feature, fixes a bug, or removes something should include a CHANGELOG entry. Pure documentation fixes and typo corrections may skip this.
+
+### Where to add it
+
+Add your entry under `## [Unreleased]` in `CHANGELOG.md`. Create the subsection heading if it does not already exist.
+
+### Which subsection to use
+
+| Change type | Subsection |
+|-------------|------------|
+| New function, feature, or file | `### Added` |
+| Modified existing behaviour | `### Changed` |
+| Bug fix | `### Fixed` |
+| Deleted function, file, or option | `### Removed` |
+
+### Entry format
+
+```
+- component: description (PR #N)
+```
+
+- **component** — the affected file or contract, e.g. `contracts/vesting`, `backend/src/routes/vesting.js`, `docs/architecture.md`.
+- **description** — a present-tense summary of what changed and why it matters. Include function names, error codes, test names, or anything else that helps a reader understand the scope without reading the diff.
+- **(PR #N)** — the pull request number. Add this when you open the PR; you can use a placeholder like `(PR #TBD)` in your first draft and update it once GitHub assigns a number.
+
+### Concrete example
+
+```markdown
+## [Unreleased]
+
+### Added
+
+- contracts/vesting: `cancel_schedule(env, schedule_id, recipient)` (#282).
+  Cancels a schedule that has not yet started (now < start_time) and refunds
+  total_amount to recipient. New ScheduleStatus::Cancelled variant and
+  VestingError::ScheduleNotStarted = 11.
+```
+
+### When to skip a CHANGELOG entry
+
+- Typo fixes in comments or docs with no behaviour change.
+- Test-only changes that do not affect any public API or observable behaviour.
+- Pure CI/tooling changes (e.g. bumping a linter version) unless they affect contributor workflow.
+
+When in doubt, add an entry — it is easier to remove one than to reconstruct history later.
+
 ## Project Structure
 
 ```
