@@ -89,6 +89,9 @@ jobs:
           path: backend/coverage/
           retention-days: 14
 
+      - name: Lint OpenAPI spec
+        run: npx --yes @redocly/cli@latest lint ../docs/openapi.yaml
+
   # ── Frontend ───────────────────────────────────────────────────────────────
   frontend:
     name: Frontend (validate HTML + lint JS)

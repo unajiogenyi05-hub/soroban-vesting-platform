@@ -433,6 +433,8 @@ SOURCE_SECRET_KEY=<Stellar secret key for transaction signing>
 Without these values the API returns documented stub responses so the frontend
 can be developed independently of a live deployment.
 
+See [docs/openapi.yaml](docs/openapi.yaml) for the full OpenAPI 3.0 specification. Import into Swagger UI or Redoc for interactive documentation.
+
 ---
 
 ## Status and limitations

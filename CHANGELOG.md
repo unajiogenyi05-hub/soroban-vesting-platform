@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-17 (openapi)
+
+- docs/openapi.yaml: OpenAPI 3.0.3 specification covering all 28 REST
+  endpoints across Health, Vesting, Token, and Multisig routers (#276).
+  Includes component schemas for `VestingScheduleStub`, `ProposalStub`,
+  `TokenInfoResponse`, `SuccessResponse`, `ErrorResponse`, and
+  `AcceptedResponse`. Server set to `http://localhost:3001`. Paths carry
+  full request body schemas with required-field annotations and 202/400/503
+  response shapes matching the actual route implementations.
+
+- .github/workflows/ci.yml: OpenAPI lint step added to the backend job,
+  after the existing test step, using `npx @redocly/cli@latest lint` (#276).
+
+- README.md: "Backend API" section now links to `docs/openapi.yaml` for
+  Swagger UI / Redoc import (#276).
+
 ### Added — 2026-10-17
 
 - docs/postman-collection.json: Postman Collection v2.1 covering all 28
