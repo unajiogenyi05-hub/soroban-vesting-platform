@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-11-21
 
+- backend/src/routes/vesting.js: `GET /api/vesting/count` now calls
+  `simulateContractCall` with method `schedule_count` (no args) when
+  `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are set (#268). Decodes the
+  `u64` result via `scValToNative` (BigInt → Number) and returns it as `count`.
+  Falls back to `{ count: 0, note }` stub when either env var is absent. Updated
+  `vesting.test.js` with three new live-call tests: parsed count returned,
+  BigInt(0) handled, RPC error propagates to 500. Existing stub tests updated
+  with explicit `beforeEach` that deletes `SOURCE_SECRET_KEY` and an extra
+  assertion confirming the stub returns `count: 0` with a `note` field.
+
 - backend/src/routes/vesting.js: `GET /api/vesting/beneficiary/:addr` now calls
   `simulateContractCall` with method `get_beneficiary_schedules` and an `address`
   arg when `VESTING_CONTRACT_ID` and `SOURCE_SECRET_KEY` are set (#269). Decodes
