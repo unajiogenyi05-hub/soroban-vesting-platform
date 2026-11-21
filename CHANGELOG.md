@@ -304,6 +304,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `no-unused-vars` warnings in CI. No behaviour changes; all 54 backend tests
   still pass and `npm run lint` reports zero warnings for `vesting.js`.
 
+### Added — 2026-10-17
+
+- docs/postman-collection.json: Postman Collection v2.1 covering all 28
+  backend REST API endpoints (#266). Four folders — Health (2), Vesting (9),
+  Token (9), Multisig (9) — each request uses `{{baseUrl}}` defaulting to
+  `http://localhost:3001` and includes an example request body and example
+  response. README updated with import instructions under a new "Postman
+  Collection" subsection inside "Backend API".
+
+### Changed — 2026-10-17
+
+- .github/workflows/ci.yml: backend CI test step changed from `npm test
+  --if-present` to `npx jest --coverage --forceExit` so coverage data is
+  collected on every CI run (#275). The coverage report is uploaded as a
+  GitHub Actions artifact (`backend-coverage`, 14-day retention).
+- backend/package.json: added `jest` configuration block with
+  `testEnvironment: "node"`, `coverageDirectory: "coverage"`, and
+  `collectCoverageFrom: ["src/**/*.js"]` (#275).
+
 ### Changed — 2026-10-16
 
 - contracts/token/src/lib.rs: added `///` doc comments to all 18 public
