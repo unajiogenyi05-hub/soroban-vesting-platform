@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- contracts/vesting: `cancel_schedule(env, schedule_id, recipient)` (#282). Cancels a vesting schedule that has not yet started (now < start_time), refunds total_amount to recipient, and sets status to Cancelled. Panics with ScheduleNotStarted if the schedule has already started. New ScheduleStatus::Cancelled variant and VestingError::ScheduleNotStarted = 11 added. Three new tests: test_cancel_schedule_success, test_cancel_schedule_already_started_panics, test_cancel_already_cancelled_panics.
+
+- contracts/vesting: `get_vesting_progress(env, schedule_id) -> VestingProgress` (#284). Returns vested, claimed, claimable, unvested, and status in a single read-only call. Eliminates the two-round-trip pattern (get_schedule + get_claimable) previously needed to build a progress display. New VestingProgress contracttype struct. Three new tests: test_get_vesting_progress_mid_schedule, test_get_vesting_progress_at_completion, test_get_vesting_progress_revoked. README updated.
+
 ### Tests — 2026-10-16
 
 - backend/src/routes/vesting.test.js: expanded test coverage for

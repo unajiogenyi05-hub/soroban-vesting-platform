@@ -99,6 +99,34 @@ Authorization: admin.
 
 ---
 
+### `cancel_schedule(env, schedule_id: u64, recipient: Address) -> i128`
+
+Cancels an active vesting schedule that has **not yet started**
+(`now < start_time`). The full `total_amount` is returned to `recipient`
+and the schedule status is set to `Cancelled`.
+
+For schedules that have already started, use `revoke` instead.
+
+State is updated before token transfer (checks-effects-interactions pattern):
+
+1. Validates the schedule is `Active` and `now < start_time`.
+2. Sets status to `Cancelled` and writes to persistent storage.
+3. Transfers `total_amount` from the contract to `recipient`.
+4. Emits the `("cancelld",)` event.
+
+Returns `total_amount`.
+
+Authorization: admin.
+
+**Panics:**
+- `VestingError::ScheduleNotFound` — schedule ID does not exist
+- `VestingError::ScheduleNotActive` — schedule is not `Active` (already Revoked, Completed, or Cancelled)
+- `VestingError::ScheduleNotStarted` — `now >= start_time` (use `revoke` for in-progress schedules)
+
+**Events:** `("cancelld",)` → `(schedule_id: u64, total_amount: i128)`
+
+---
+
 ### `pause(env)`
 
 Blocks `create_schedule` and `claim`. Does not affect `revoke` or
@@ -188,6 +216,18 @@ Read-only; does not extend TTL.
 
 ---
 
+### `get_vesting_progress(env, schedule_id: u64) -> VestingProgress`
+
+Returns a snapshot of a schedule's vesting state at the current ledger timestamp,
+combining all five fields (vested, claimed, claimable, unvested, status) in a single
+call. Avoids the two round-trips previously needed for `get_schedule` + `get_claimable`.
+
+Authorization: none. Read-only; does not extend TTL.
+
+**Panics:** `VestingError::ScheduleNotFound` — schedule ID does not exist
+
+---
+
 ### `extend_ttl(env)`
 
 Permissionless. Extends the contract instance TTL to `INSTANCE_BUMP_LEDGERS`
@@ -215,7 +255,7 @@ Pure getters do **not** bump instance TTL.
 
 | Key | Type | Bumped on |
 |-----|------|-----------|
-| `Schedule(id: u64)` | `VestingSchedule` | `create_schedule`, `claim`, `revoke` |
+| `Schedule(id: u64)` | `VestingSchedule` | `create_schedule`, `claim`, `revoke`, `cancel_schedule` |
 | `BeneficiarySchedules(addr: Address)` | `Vec<u64>` | `create_schedule` |
 
 ### TTL constants
@@ -239,6 +279,7 @@ See [docs/ttl.md](../../docs/ttl.md).
 | `("created",)` | `(id, beneficiary, total_amount)` | `create_schedule` |
 | `("claimed",)` | `(schedule_id, beneficiary, amount)` | `claim` |
 | `("revoked",)` | `(schedule_id, unvested)` | `revoke` |
+| `("cancelld",)` | `(schedule_id, total_amount)` | `cancel_schedule` |
 | `("paused",)` | `()` | `pause` |
 | `("unpaused",)` | `()` | `unpause` |
 | `("admXfer",)` | `(old_admin, new_admin)` | `transfer_admin` |
@@ -332,4 +373,15 @@ the contract until the schedule completes.
 
 ### `ScheduleStatus`
 
-`Active` | `Revoked` | `Completed`
+`Active` | `Revoked` | `Completed` | `Cancelled`
+
+### `VestingProgress`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_amount` | `i128` | Total tokens locked |
+| `vested` | `i128` | Vested so far (includes claimed) |
+| `claimed` | `i128` | Already claimed by beneficiary |
+| `claimable` | `i128` | Vested but not yet claimed |
+| `unvested` | `i128` | Not yet vested |
+| `status` | `ScheduleStatus` | Current schedule status |
