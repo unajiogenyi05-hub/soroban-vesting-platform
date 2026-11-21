@@ -1973,3 +1973,84 @@ mod tests {
         );
     }
 }
+
+// ─── Property-based tests ─────────────────────────────────────────────────────
+//
+// Uses proptest to verify the invariant:
+//   confirmation_count <= owners.len()
+//
+// for any number of owners (1–5) and any subset of them confirming a proposal.
+// The "already confirmed" guard in confirm() ensures each owner can only add 1
+// to the count, so confirmation_count is always bounded by the owner set size.
+//
+// Run with: cargo test --package multisig prop_
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use soroban_sdk::{testutils::Address as _, Env, String, Vec};
+
+    proptest! {
+        /// confirmation_count never exceeds the number of owners.
+        ///
+        /// Generates a multisig with N owners (1–5), submits one proposal,
+        /// then confirms with a random subset of size 0–N. Asserts that the
+        /// stored confirmation_count equals the subset size and is <= N.
+        #[test]
+        fn prop_confirmation_count_never_exceeds_owner_count(
+            // Number of owners: 1 to 5.
+            n_owners in 1usize..=5usize,
+            // Bit-mask selecting which owners confirm (up to 5 bits).
+            confirm_mask in 0u8..=31u8,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            // Build owner list.
+            let mut owners: Vec<Address> = Vec::new(&env);
+            let mut owner_vec: std::vec::Vec<Address> = std::vec::Vec::new();
+            for _ in 0..n_owners {
+                let o = Address::generate(&env);
+                owners.push_back(o.clone());
+                owner_vec.push(o);
+            }
+
+            // threshold = 1 so we can confirm without immediately being forced
+            // to execute; we only care about confirmation_count here.
+            let contract_id = env.register(MultisigContract, (owners, 1u32));
+            let ms = MultisigContractClient::new(&env, &contract_id);
+
+            // Submit a proposal from the first owner.
+            let proposer = owner_vec[0].clone();
+            let proposal_id = ms.submit(
+                &proposer,
+                &ProposalAction::AddOwner(Address::generate(&env)),
+                &String::from_str(&env, "prop_confirmation_count test"),
+            );
+
+            // Confirm with the subset selected by confirm_mask.
+            let mut expected_count: u32 = 0;
+            for (i, owner) in owner_vec.iter().enumerate() {
+                if i < n_owners && (confirm_mask >> i) & 1 == 1 {
+                    ms.confirm(owner, &proposal_id);
+                    expected_count += 1;
+                }
+            }
+
+            let proposal = ms.get_proposal(&proposal_id);
+            let actual_count = proposal.confirmation_count;
+
+            // Invariant: count matches how many owners confirmed.
+            prop_assert_eq!(
+                actual_count, expected_count,
+                "confirmation_count={actual_count} != expected={expected_count}"
+            );
+            // Invariant: count never exceeds owner count.
+            prop_assert!(
+                actual_count <= n_owners as u32,
+                "confirmation_count={actual_count} > n_owners={n_owners}"
+            );
+        }
+    }
+}
