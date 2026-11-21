@@ -1,0 +1,1413 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Soroban Vesting Platform API",
+    "description": "REST API collection for the Soroban Vesting Platform backend. Covers all 28 endpoints across Health, Vesting, Token, and Multisig routers.\n\nSet `baseUrl` to `http://localhost:3001` (the default) or to your deployed backend URL.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "Liveness and readiness checks for the backend service.",
+      "item": [
+        {
+          "name": "GET /api/health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Returns the current health status of the backend service, including network and RPC connectivity information."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/health",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"status\": \"ok\",\n  \"timestamp\": \"2024-01-15T12:00:00.000Z\",\n  \"network\": \"testnet\",\n  \"rpc\": \"https://soroban-testnet.stellar.org\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/health/ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health", "ready"]
+            },
+            "description": "Readiness probe. Returns 200 when at least one contract ID environment variable is configured; returns 503 when none are set."
+          },
+          "response": [
+            {
+              "name": "200 Ready",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/health/ready",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "health", "ready"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"ready\": true,\n  \"contracts\": {\n    \"vesting\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n    \"token\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n    \"multisig\": null\n  }\n}"
+            },
+            {
+              "name": "503 Not Ready",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/health/ready",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "health", "ready"]
+                }
+              },
+              "status": "Service Unavailable",
+              "code": 503,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"ready\": false,\n  \"contracts\": {\n    \"vesting\": null,\n    \"token\": null,\n    \"multisig\": null\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Vesting",
+      "description": "Endpoints for managing vesting schedules: create, query, claim, revoke, and pause operations.",
+      "item": [
+        {
+          "name": "POST /api/vesting/schedule",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n  \"from\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"beneficiary\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"tokenAddress\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n  \"totalAmount\": \"1000000000\",\n  \"startTime\": 1700000000,\n  \"cliffDuration\": 31536000,\n  \"totalDuration\": 126144000,\n  \"signerKey\": \"SCZANGBA5EBER4LHTQS4FEQP5DRCA64OPJAGQBUHP652V2DPSQB2WVIT\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/schedule",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "schedule"]
+            },
+            "description": "Create a new vesting schedule. `contractId`, `startTime`, `cliffDuration`, and `signerKey` are optional. Amounts are in the token's smallest unit (stroops for 7-decimal tokens)."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n  \"from\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"beneficiary\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"tokenAddress\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n  \"totalAmount\": \"1000000000\",\n  \"startTime\": 1700000000,\n  \"cliffDuration\": 31536000,\n  \"totalDuration\": 126144000\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/schedule",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "schedule"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Vesting schedule created\",\n  \"data\": {\n    \"scheduleId\": 1,\n    \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n    \"note\": \"stub — set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/vesting/schedule/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/schedule/1?contractId=CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "schedule", "1"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+                  "description": "Optional. Overrides the VESTING_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Retrieve a specific vesting schedule by its numeric ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/schedule/1",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "schedule", "1"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": 1,\n    \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n    \"note\": \"stub — set VESTING_CONTRACT_ID for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/vesting/claimable/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/claimable/1?contractId=CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "claimable", "1"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+                  "description": "Optional. Overrides the VESTING_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Query the amount currently claimable for a schedule. The returned amount is in the token's smallest unit."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/claimable/1",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "claimable", "1"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"scheduleId\": 1,\n    \"claimableAmount\": \"250000000\",\n    \"note\": \"stub — set VESTING_CONTRACT_ID for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/vesting/claim",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n  \"scheduleId\": 1,\n  \"beneficiary\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/claim",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "claim"]
+            },
+            "description": "Claim all currently vested and unclaimed tokens for the given schedule. The beneficiary must authorise this call."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scheduleId\": 1,\n  \"beneficiary\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/claim",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "claim"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Claim submitted\",\n  \"data\": {\n    \"scheduleId\": 1,\n    \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n    \"note\": \"stub — set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/vesting/revoke",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n  \"scheduleId\": 1,\n  \"recipient\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"adminKey\": \"SCZANGBA5EBER4LHTQS4FEQP5DRCA64OPJAGQBUHP652V2DPSQB2WVIT\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/revoke",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "revoke"]
+            },
+            "description": "Revoke an active vesting schedule. Unvested tokens are transferred to `recipient`. Requires admin authorisation. `contractId` and `adminKey` are optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"scheduleId\": 1,\n  \"recipient\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/revoke",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "revoke"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Schedule revoked\",\n  \"data\": {\n    \"scheduleId\": 1,\n    \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\",\n    \"note\": \"stub — set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/vesting/pause",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "pause"]
+            },
+            "description": "Pause the vesting contract. Blocks `create_schedule` and `claim`. Requires admin authorisation. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/pause",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "pause"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Vesting contract paused\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/vesting/unpause",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/unpause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "unpause"]
+            },
+            "description": "Unpause the vesting contract, restoring `create_schedule` and `claim`. Requires admin authorisation. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/unpause",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "unpause"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Vesting contract unpaused\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/vesting/beneficiary/:addr",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/beneficiary/GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2?contractId=CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "vesting",
+                "beneficiary",
+                "GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2"
+              ],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+                  "description": "Optional. Overrides the VESTING_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "List all schedule IDs associated with a beneficiary address."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/beneficiary/GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2",
+                  "host": ["{{baseUrl}}"],
+                  "path": [
+                    "api",
+                    "vesting",
+                    "beneficiary",
+                    "GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"beneficiary\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"scheduleIds\": [1, 2, 3],\n    \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/vesting/count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/vesting/count?contractId=CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "vesting", "count"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF",
+                  "description": "Optional. Overrides the VESTING_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return the total number of vesting schedules ever created."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/vesting/count",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "vesting", "count"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"count\": 42,\n    \"contractId\": \"CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Token",
+      "description": "Endpoints for the SEP-0041 token contract: metadata, balances, allowances, and state-changing operations.",
+      "item": [
+        {
+          "name": "GET /api/token/info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/token/info?contractId=CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "info"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH",
+                  "description": "Optional. Overrides the TOKEN_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return token metadata: name, symbol, decimals, and total supply."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/info",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "info"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n    \"name\": \"My Token\",\n    \"symbol\": \"MTK\",\n    \"decimals\": 7,\n    \"totalSupply\": \"100000000000000\",\n    \"note\": \"stub — set TOKEN_CONTRACT_ID for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/token/balance/:addr",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/token/balance/GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2?contractId=CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "token",
+                "balance",
+                "GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2"
+              ],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH",
+                  "description": "Optional. Overrides the TOKEN_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return the token balance for a specific address. The balance is in the token's smallest unit."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/balance/GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2",
+                  "host": ["{{baseUrl}}"],
+                  "path": [
+                    "api",
+                    "token",
+                    "balance",
+                    "GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"address\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"balance\": \"250000000\",\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/token/allowance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/token/allowance?owner=GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN&spender=GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2&contractId=CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "allowance"],
+              "query": [
+                {
+                  "key": "owner",
+                  "value": "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+                  "description": "Required. The token owner's address."
+                },
+                {
+                  "key": "spender",
+                  "value": "GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2",
+                  "description": "Required. The approved spender's address."
+                },
+                {
+                  "key": "contractId",
+                  "value": "CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH",
+                  "description": "Optional. Overrides the TOKEN_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return the spending allowance granted by `owner` to `spender`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/allowance?owner=GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN&spender=GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "allowance"],
+                  "query": [
+                    { "key": "owner", "value": "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN" },
+                    { "key": "spender", "value": "GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2" }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n    \"spender\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"allowance\": \"500000000\",\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/token/mint",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n  \"to\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"10000000000\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/token/mint",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "mint"]
+            },
+            "description": "Mint new tokens to a recipient address. Requires admin authorisation. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"to\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"10000000000\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/mint",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "mint"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Mint submitted\",\n  \"data\": {\n    \"to\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"amount\": \"10000000000\",\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n    \"note\": \"stub — set TOKEN_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/token/burn",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n  \"from\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"5000000000\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/token/burn",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "burn"]
+            },
+            "description": "Burn tokens from an address. The `from` account must authorise this call. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"from\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"5000000000\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/burn",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "burn"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Burn submitted\",\n  \"data\": {\n    \"from\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"amount\": \"5000000000\",\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n    \"note\": \"stub — set TOKEN_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/token/transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n  \"from\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"to\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"100000000\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/token/transfer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "transfer"]
+            },
+            "description": "Transfer tokens directly from one address to another. The `from` account must authorise this call. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"from\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"to\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"100000000\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/transfer",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "transfer"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Transfer submitted\",\n  \"data\": {\n    \"from\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n    \"to\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"amount\": \"100000000\",\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n    \"note\": \"stub — set TOKEN_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/token/approve",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n  \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"spender\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"500000000\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/token/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "approve"]
+            },
+            "description": "Approve a spender to transfer up to `amount` tokens on behalf of the owner. Set `amount` to `0` to revoke an existing allowance. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"spender\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n  \"amount\": \"500000000\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/approve",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "approve"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Approve submitted\",\n  \"data\": {\n    \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n    \"spender\": \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n    \"amount\": \"500000000\",\n    \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\",\n    \"note\": \"stub — set TOKEN_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/token/pause",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/token/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "pause"]
+            },
+            "description": "Pause the token contract. Blocks mint, burn, transfer, transfer_from, and approve. Requires admin authorisation. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/pause",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "pause"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Token contract paused\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/token/unpause",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/token/unpause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "token", "unpause"]
+            },
+            "description": "Unpause the token contract, restoring all token operations. Requires admin authorisation. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/token/unpause",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "token", "unpause"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Token contract unpaused\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Multisig",
+      "description": "Endpoints for the N-of-M multisig governance contract: submit proposals, confirm, execute, cancel, and query state.",
+      "item": [
+        {
+          "name": "POST /api/multisig/proposal",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n  \"proposer\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"description\": \"Pause the vesting contract for emergency maintenance\"\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/proposal",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "proposal"]
+            },
+            "description": "Submit a new governance proposal. The `proposer` must be a registered multisig owner. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"proposer\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"description\": \"Pause the vesting contract for emergency maintenance\"\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/proposal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "proposal"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Proposal submitted\",\n  \"data\": {\n    \"proposalId\": 1,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n    \"note\": \"stub — set MULTISIG_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/multisig/proposal/:id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/proposal/1?contractId=CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "proposal", "1"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+                  "description": "Optional. Overrides the MULTISIG_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Retrieve a specific proposal by its numeric ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/proposal/1",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "proposal", "1"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"id\": 1,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n    \"note\": \"stub — set MULTISIG_CONTRACT_ID for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/multisig/confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n  \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"proposalId\": 1\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/confirm",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "confirm"]
+            },
+            "description": "Confirm a pending proposal. The `owner` must be a registered multisig owner. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"proposalId\": 1\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/confirm",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "confirm"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Confirmation submitted\",\n  \"data\": {\n    \"proposalId\": 1,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n    \"note\": \"stub — set MULTISIG_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/multisig/revoke-confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n  \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"proposalId\": 1\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/revoke-confirm",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "revoke-confirm"]
+            },
+            "description": "Revoke a previously submitted confirmation for a pending proposal. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"owner\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"proposalId\": 1\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/revoke-confirm",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "revoke-confirm"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Confirmation revoked\",\n  \"data\": {\n    \"proposalId\": 1,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n    \"note\": \"stub — set MULTISIG_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/multisig/execute",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n  \"proposalId\": 1\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/execute",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "execute"]
+            },
+            "description": "Execute a proposal once the confirmation threshold is met. This call is permissionless — anyone can trigger execution once enough owners have confirmed. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"proposalId\": 1\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/execute",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "execute"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Proposal executed\",\n  \"data\": {\n    \"proposalId\": 1,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n    \"note\": \"stub — set MULTISIG_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/multisig/cancel",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n  \"caller\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"proposalId\": 1\n}",
+              "options": {
+                "raw": { "language": "json" }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "cancel"]
+            },
+            "description": "Cancel a pending proposal. Only the original proposer can cancel. `contractId` is optional."
+          },
+          "response": [
+            {
+              "name": "202 Accepted",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"caller\": \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n  \"proposalId\": 1\n}",
+                  "options": { "raw": { "language": "json" } }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/cancel",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "cancel"]
+                }
+              },
+              "status": "Accepted",
+              "code": 202,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Proposal cancelled\",\n  \"data\": {\n    \"proposalId\": 1,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\",\n    \"note\": \"stub — set MULTISIG_CONTRACT_ID and SOURCE_SECRET_KEY for live data\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/multisig/owners",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/owners?contractId=CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "owners"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+                  "description": "Optional. Overrides the MULTISIG_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return the current list of multisig owner addresses."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/owners",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "owners"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"owners\": [\n      \"GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN\",\n      \"GBND2BWIYMZQ2V3AEPJXAYDNZGRK7BZEMLVNM5HDGQIM3RZBR7MBKR2\",\n      \"GC4VXPNBFNYGNGFJKLHGBCNQEXGZXQVZUVFNKXIIJBJDM6IQPYOAHPKL\"\n    ],\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/multisig/threshold",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/threshold?contractId=CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "threshold"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+                  "description": "Optional. Overrides the MULTISIG_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return the current confirmation threshold (M in N-of-M)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/threshold",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "threshold"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"threshold\": 2,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/multisig/count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/multisig/count?contractId=CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "multisig", "count"],
+              "query": [
+                {
+                  "key": "contractId",
+                  "value": "CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA",
+                  "description": "Optional. Overrides the MULTISIG_CONTRACT_ID environment variable."
+                }
+              ]
+            },
+            "description": "Return the total number of proposals ever submitted to this multisig."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/multisig/count",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["api", "multisig", "count"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"success\": true,\n  \"data\": {\n    \"count\": 7,\n    \"contractId\": \"CCXMGCXNPZJNFWZK7JVZQKZ5HNZWDJ2QBQMZXYRQ6B2ZF5D2XJXQJMA\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
