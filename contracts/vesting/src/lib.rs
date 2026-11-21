@@ -1958,6 +1958,147 @@ mod tests {
         assert_eq!(token_client.balance(&beneficiary), 100_000);
     }
 
+    /// End-to-end: multisig calls revoke() with a real token.
+    ///
+    /// Setup:
+    /// - Deploy multisig (2-of-3) as the vesting admin.
+    /// - Create a vesting schedule via a direct admin call (same pattern as
+    ///   test_multisig_create_schedule).
+    /// - Submit a ProposalAction::Call proposal for `revoke(schedule_id, treasury)`.
+    /// - Confirm ×2 and execute.
+    ///
+    /// Assertions:
+    /// - schedule.status == Revoked
+    /// - treasury received all unvested tokens (revoke called at t=0, before
+    ///   any vesting, so the full amount goes to treasury)
+    /// - beneficiary balance is 0 (nothing vested yet, so no vested-but-
+    ///   unclaimed payout on revoke)
+    #[test]
+    fn test_multisig_revoke_schedule() {
+        use multisig::{CallData, MultisigContract, MultisigContractClient, ProposalAction};
+        use soroban_sdk::{token::StellarAssetClient, IntoVal};
+
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+
+        let o1 = Address::generate(&env);
+        let o2 = Address::generate(&env);
+        let o3 = Address::generate(&env);
+        let funder = Address::generate(&env);
+        let beneficiary = Address::generate(&env);
+        let treasury = Address::generate(&env);
+
+        // Deploy 2-of-3 multisig
+        let mut owners = soroban_sdk::Vec::new(&env);
+        owners.push_back(o1.clone());
+        owners.push_back(o2.clone());
+        owners.push_back(o3.clone());
+        let ms_id = env.register(MultisigContract, (owners, 2u32));
+        let ms = MultisigContractClient::new(&env, &ms_id);
+
+        // Deploy vesting with multisig as admin
+        let vesting_id = env.register(VestingContract, (ms_id.clone(),));
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        // Mint tokens to funder
+        let token_id = env.register_stellar_asset_contract_v2(funder.clone());
+        let token_addr = token_id.address();
+        StellarAssetClient::new(&env, &token_addr).mint(&funder, &100_000);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token_addr);
+
+        // Create a schedule directly (multisig is admin, mock_all_auths satisfies it)
+        let start = env.ledger().timestamp();
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token_addr.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+        let mut create_args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::Vec::new(&env);
+        create_args.push_back(params.into_val(&env));
+        let create_proposal_id = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::Symbol::new(&env, "create_schedule"),
+                args: create_args,
+            }),
+            &soroban_sdk::String::from_str(&env, "create schedule for revoke test"),
+        );
+        ms.confirm(&o1, &create_proposal_id);
+        ms.confirm(&o2, &create_proposal_id);
+        ms.execute(&create_proposal_id);
+
+        // Schedule 1 is now created; vesting contract holds 100_000 tokens
+        assert_eq!(vesting.schedule_count(), 1);
+        assert_eq!(token_client.balance(&vesting_id), 100_000);
+        assert_eq!(token_client.balance(&funder), 0);
+
+        // Submit revoke proposal: revoke(schedule_id=1, recipient=treasury)
+        // revoke takes two arguments: schedule_id (u64) and recipient (Address)
+        let schedule_id: u64 = 1;
+        let mut revoke_args: soroban_sdk::Vec<soroban_sdk::Val> = soroban_sdk::Vec::new(&env);
+        revoke_args.push_back(schedule_id.into_val(&env));
+        revoke_args.push_back(treasury.into_val(&env));
+
+        let revoke_proposal_id = ms.submit(
+            &o1,
+            &ProposalAction::Call(CallData {
+                target: vesting_id.clone(),
+                function: soroban_sdk::symbol_short!("revoke"),
+                args: revoke_args,
+            }),
+            &soroban_sdk::String::from_str(&env, "revoke schedule via multisig"),
+        );
+
+        // Confirm ×2 and execute
+        ms.confirm(&o1, &revoke_proposal_id);
+        ms.confirm(&o2, &revoke_proposal_id);
+        ms.execute(&revoke_proposal_id);
+
+        // Proposal must be Executed
+        assert_eq!(
+            ms.get_proposal(&revoke_proposal_id).status,
+            multisig::ProposalStatus::Executed
+        );
+
+        // Schedule status must be Revoked
+        let schedule = vesting.get_schedule(&schedule_id);
+        assert_eq!(
+            schedule.status,
+            ScheduleStatus::Revoked,
+            "expected schedule status Revoked"
+        );
+
+        // Revoke was called at t=start (0 seconds elapsed, before any vesting):
+        // vested = 0, so unclaimed_vested = 0 → beneficiary gets nothing.
+        // All 100_000 unvested tokens go to treasury.
+        assert_eq!(
+            token_client.balance(&treasury),
+            100_000,
+            "treasury should receive all unvested tokens"
+        );
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            0,
+            "beneficiary should receive nothing (nothing vested yet)"
+        );
+        assert_eq!(
+            token_client.balance(&vesting_id),
+            0,
+            "vesting contract should hold no tokens after revoke"
+        );
+        // Token conservation: all 100_000 went to treasury
+        assert_eq!(
+            token_client.balance(&treasury) + token_client.balance(&beneficiary),
+            100_000
+        );
+    }
+
     // ── Overflow guards ───────────────────────────────────────────────────────
 
     /// create_schedule with start_time + total_duration overflowing u64 must
