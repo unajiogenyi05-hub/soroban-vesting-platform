@@ -440,6 +440,70 @@ impl VestingContract {
         schedule.total_amount
     }
 
+    /// Cancel a vesting schedule that has not yet started.
+    ///
+    /// The full `total_amount` is returned to `recipient`. The schedule status
+    /// is set to `Cancelled`. Only schedules that have not yet started
+    /// (`now < start_time`) may be cancelled; use `revoke` for in-progress
+    /// schedules.
+    ///
+    /// Follows the checks-effects-interactions (CEI) pattern:
+    /// 1. Load schedule and validate (check)
+    /// 2. Update status to `Cancelled` and persist (effect)
+    /// 3. Transfer tokens and emit event (interaction)
+    ///
+    /// Returns `total_amount`.
+    ///
+    /// Authorization: admin.
+    ///
+    /// # Panics
+    /// - `VestingError::ScheduleNotFound` — no schedule with the given ID
+    /// - `VestingError::ScheduleNotActive` — schedule is not `Active` (already Revoked, Completed, or Cancelled)
+    /// - `VestingError::ScheduleNotStarted` — `now >= start_time` (use `revoke` for in-progress schedules)
+    pub fn cancel_schedule(env: Env, schedule_id: u64, recipient: Address) -> i128 {
+        Self::bump_instance(&env);
+        Self::require_admin(&env);
+
+        let mut schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+
+        if schedule.status != ScheduleStatus::Active {
+            panic_with_error!(&env, VestingError::ScheduleNotActive);
+        }
+
+        let now = env.ledger().timestamp();
+        if now >= schedule.start_time {
+            panic_with_error!(&env, VestingError::ScheduleNotStarted);
+        }
+
+        // ── Effect: mark cancelled before any external calls (CEI) ──
+        schedule.status = ScheduleStatus::Cancelled;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Schedule(schedule_id), &schedule);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Schedule(schedule_id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
+
+        // ── Interaction: refund tokens and emit event ──
+        let tk = token::Client::new(&env, &schedule.token);
+        tk.transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &schedule.total_amount,
+        );
+
+        env.events()
+            .publish((EVT_CANCELLED,), (schedule_id, schedule.total_amount));
+
+        schedule.total_amount
+    }
+
     // ── Pause ────────────────────────────────────────────────────────────
 
     pub fn pause(env: Env) {
@@ -3663,6 +3727,104 @@ mod tests {
 
     /// Panics when the schedule's start_time has already been reached
     /// (now >= start_time).
+    #[test]
+    #[should_panic]
+    fn test_cancel_schedule_already_started_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+
+        // start_time == now: the schedule is considered started immediately
+        let start_now = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start_now,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // now == start_time → should panic with VestingError::ScheduleNotStarted
+        vesting.cancel_schedule(&id, &recipient);
+    }
+
+    /// Panics when trying to cancel a schedule that was already cancelled
+    /// (status != Active → ScheduleNotActive).
+    #[test]
+    #[should_panic]
+    fn test_cancel_already_cancelled_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+
+        let future_start = env.ledger().timestamp() + 1000;
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: future_start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // First cancel succeeds
+        vesting.cancel_schedule(&id, &recipient);
+
+        // Second cancel must panic with VestingError::ScheduleNotActive
+        vesting.cancel_schedule(&id, &recipient);
+    }
+
+    // ── cancel_schedule tests (#282) ─────────────────────────────────────────
+
+    /// Success case: cancel a schedule whose start_time is in the future.
+    /// Return value == total_amount, status becomes Cancelled, recipient
+    /// receives all tokens.
+    #[test]
+    fn test_cancel_schedule_success() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+
+        // start_time is 1000 seconds in the future
+        let future_start = env.ledger().timestamp() + 1000;
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: future_start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        let returned = vesting.cancel_schedule(&id, &recipient);
+
+        // Return value must equal total_amount
+        assert_eq!(returned, 100_000);
+
+        // Schedule status must be Cancelled
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Cancelled);
+
+        // Recipient must have received all the tokens
+        let tk = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(tk.balance(&recipient), 100_000);
+
+        // Vesting contract holds nothing
+        assert_eq!(tk.balance(&vesting_id), 0);
+    }
+
+    /// Panics when the schedule's start_time has already been reached
+    /// (now >= start_time). VestingError::ScheduleNotStarted.
     #[test]
     #[should_panic]
     fn test_cancel_schedule_already_started_panics() {

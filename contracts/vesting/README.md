@@ -99,6 +99,31 @@ Authorization: admin.
 
 ---
 
+### `cancel_schedule(env, schedule_id: u64, recipient: Address) -> i128`
+
+Cancels an active vesting schedule that has **not yet started**
+(`now < start_time`). The full `total_amount` is returned to `recipient`
+and the schedule status is set to `Cancelled`.
+
+For schedules that have already started, use `revoke` instead.
+
+State is updated before token transfer (checks-effects-interactions pattern):
+
+1. Validates the schedule is `Active` and `now < start_time`.
+2. Sets status to `Cancelled` and writes to persistent storage.
+3. Transfers `total_amount` from the contract to `recipient`.
+4. Emits the `("cancelld",)` event.
+
+Returns `total_amount`.
+
+Authorization: admin.
+
+**Panics:**
+- `VestingError::ScheduleNotFound` — schedule ID does not exist
+- `VestingError::ScheduleNotActive` — schedule is not `Active` (already Revoked, Completed, or Cancelled)
+- `VestingError::ScheduleNotStarted` — `now >= start_time` (use `revoke` for in-progress schedules)
+
+**Events:** `("cancelld",)` → `(schedule_id: u64, total_amount: i128)`
 ### `batch_revoke(env, schedule_ids: Vec<u64>, recipient: Address) -> Vec<i128>`
 
 Revokes multiple schedules for a beneficiary in a single transaction. Admin
