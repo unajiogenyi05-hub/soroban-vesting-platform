@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-17
+
+- docs/postman-collection.json: Postman Collection v2.1 covering all 28
+  backend REST API endpoints (#266). Four folders — Health (2), Vesting (9),
+  Token (9), Multisig (9) — each request uses `{{baseUrl}}` defaulting to
+  `http://localhost:3001` and includes an example request body and example
+  response. README updated with import instructions under a new "Postman
+  Collection" subsection inside "Backend API".
+
 ### Changed — 2026-10-17
 
 - .github/workflows/ci.yml: backend CI test step changed from `npm test

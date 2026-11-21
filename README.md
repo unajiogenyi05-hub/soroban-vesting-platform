@@ -396,7 +396,28 @@ stellar contract build
 
 ---
 
-## Backend API — live data note
+## Backend API
+
+### Postman Collection
+
+A ready-to-import Postman collection covering all 28 endpoints is at
+[`docs/postman-collection.json`](docs/postman-collection.json)
+(Postman Collection v2.1 format).
+
+**Import steps:**
+
+1. Open Postman and click **Import** (top-left).
+2. Select **File** and choose `docs/postman-collection.json`.
+3. The collection appears as **Soroban Vesting Platform API** with four
+   folders: Health, Vesting, Token, and Multisig.
+4. The collection variable `baseUrl` defaults to `http://localhost:3001`.
+   To point at a different host, open the collection, go to **Variables**,
+   and update `baseUrl`.
+
+Each request includes an example request body and an example response so
+you can explore the API shape before the backend is running.
+
+### Live data note
 
 The backend routes are pre-wired. For live on-chain data, set these in `.env`
 after deploying the contracts (Testnet IDs are listed in
