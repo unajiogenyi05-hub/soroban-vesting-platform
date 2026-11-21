@@ -323,6 +323,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `testEnvironment: "node"`, `coverageDirectory: "coverage"`, and
   `collectCoverageFrom: ["src/**/*.js"]` (#275).
 
+### Added — 2026-10-17 (openapi)
+
+- docs/openapi.yaml: OpenAPI 3.0.3 specification covering all 28 REST
+  endpoints across Health, Vesting, Token, and Multisig routers (#276).
+  Includes component schemas for `VestingScheduleStub`, `ProposalStub`,
+  `TokenInfoResponse`, `SuccessResponse`, `ErrorResponse`, and
+  `AcceptedResponse`. Server set to `http://localhost:3001`. Paths carry
+  full request body schemas with required-field annotations and 202/400/503
+  response shapes matching the actual route implementations.
+
+- .github/workflows/ci.yml: OpenAPI lint step added to the backend job,
+  after the existing test step, using `npx @redocly/cli@latest lint` (#276).
+
+- README.md: "Backend API" section now links to `docs/openapi.yaml` for
+  Swagger UI / Redoc import (#276).
+
+### Added — 2026-10-17
+
+- docs/postman-collection.json: Postman Collection v2.1 covering all 28
+  backend REST API endpoints (#266). Four folders — Health (2), Vesting (9),
+  Token (9), Multisig (9) — each request uses `{{baseUrl}}` defaulting to
+  `http://localhost:3001` and includes an example request body and example
+  response. README updated with import instructions under a new "Postman
+  Collection" subsection inside "Backend API".
+
+### Changed — 2026-10-17
+
+- .github/workflows/ci.yml: backend CI test step changed from `npm test
+  --if-present` to `npx jest --coverage --forceExit` so coverage data is
+  collected on every CI run (#275). The coverage report is uploaded as a
+  GitHub Actions artifact (`backend-coverage`, 14-day retention).
+- backend/package.json: added `jest` configuration block with
+  `testEnvironment: "node"`, `coverageDirectory: "coverage"`, and
+  `collectCoverageFrom: ["src/**/*.js"]` (#275).
+
 ### Changed — 2026-10-16
 
 - contracts/token/src/lib.rs: added `///` doc comments to all 18 public
