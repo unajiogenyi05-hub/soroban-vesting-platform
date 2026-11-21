@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-17
 
+- docs/upgrade-path.md: five-section migration guide for deploying new
+  contract versions on Stellar (#292). Covers: (1) why Soroban contracts are
+  immutable; (2) state export/import strategy with `get_schedule`,
+  `batch_create_schedule`, and two approaches to `claimed_amount` continuity;
+  (3) admin pointer migration via multisig `submit → confirm → execute`
+  calling `transfer_admin`; (4) decommissioning the old contract (revoke
+  active schedules, pause, record in `deployments.json`); (5) Testnet
+  validation checklist before touching Mainnet. Linked from
+  `docs/architecture.md` and `README.md`.
+
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
   Documents every `panic_with_error!` call in the vesting contract source with
   the function name, `VestingError` variant, numeric error code, and the

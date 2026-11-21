@@ -100,7 +100,8 @@ soroban-vesting-platform/
 ├── docs/
 │   ├── architecture.md
 │   ├── faq.md            # Common integration questions answered
-│   └── testnet-demo.md   # Manual walkthrough
+│   ├── testnet-demo.md   # Manual walkthrough
+│   └── upgrade-path.md   # Migrating to a new contract version
 ├── .github/workflows/ci.yml
 ├── .env.example
 ├── Cargo.toml            # Workspace root
@@ -452,6 +453,9 @@ security architecture notes.
 For a detailed per-function authorization model, trust hierarchy, CEI
 compliance summary, and attack surface analysis see
 [docs/security-model.md](docs/security-model.md).
+
+For the contract upgrade and state migration guide see
+[docs/upgrade-path.md](docs/upgrade-path.md).
 
 ---
 
