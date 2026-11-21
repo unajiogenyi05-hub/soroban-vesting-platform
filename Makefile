@@ -5,7 +5,7 @@ CONTRACTS := vesting multisig token
 NETWORK   ?= testnet
 SOURCE    ?= $(shell grep SOURCE_ACCOUNT .env 2>/dev/null | cut -d= -f2)
 
-.PHONY: help setup build build-optimized test fmt lint clean \
+.PHONY: help setup build build-optimized test test-coverage fmt lint clean \
         deploy-testnet deploy-mainnet fund \
         backend-install backend-dev backend-start backend-test
 
@@ -19,6 +19,7 @@ help:
 	@echo "    make build            Build all contracts (debug)"
 	@echo "    make build-optimized  Build + optimize WASM sizes"
 	@echo "    make test             Run all contract unit tests"
+	@echo "    make test-coverage    Run tarpaulin and produce HTML coverage report"
 	@echo "    make fmt              Format Rust code"
 	@echo "    make lint             fmt-check + clippy"
 	@echo "    make clean            Remove build artifacts"
@@ -64,6 +65,11 @@ fmt:
 lint:
 	cargo fmt --all -- --check
 	cargo clippy --all --all-targets -- -D warnings
+
+# ── Test coverage ─────────────────────────────────────────────────────────────
+test-coverage:
+	cargo tarpaulin --all --engine llvm --out Html --output-dir coverage/
+	@echo "Coverage report: coverage/tarpaulin-report.html"
 
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:

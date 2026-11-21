@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-17
 
+- Makefile: `test-coverage` target running `cargo tarpaulin --all --engine
+  llvm --out Html --output-dir coverage/` (#289). Prints the report path
+  (`coverage/tarpaulin-report.html`) on completion. `coverage/` added to
+  `.gitignore` so generated reports are never committed. `CONTRIBUTING.md`
+  updated with install instructions for `cargo-tarpaulin` and usage of
+  `make test-coverage`.
+
 - contracts/vesting/README.md: "Panic conditions" reference table (#91).
   Documents every `panic_with_error!` call in the vesting contract source with
   the function name, `VestingError` variant, numeric error code, and the
