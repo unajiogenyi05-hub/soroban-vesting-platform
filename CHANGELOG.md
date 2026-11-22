@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- scripts/query-schedule.sh: CLI helper that reads a vesting schedule from
+  testnet by ID using `stellar contract invoke` and pretty-prints the result
+  (#263).  Calls `get_schedule(schedule_id)` as a read-only simulation — no
+  signing, secret key, or XLM fees required.  Accepts the contract ID and
+  schedule ID as positional arguments (or via `VESTING_CONTRACT_ID` env var).
+  Respects `STELLAR_NETWORK` and sources `.env` if present.  Usage instructions
+  in the script header and in `docs/testnet-demo.md` (new step 7).
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: two new tests for `get_claimable()` on

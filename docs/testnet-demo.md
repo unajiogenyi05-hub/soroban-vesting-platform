@@ -118,7 +118,25 @@ stellar contract invoke \
   --params "{ \"from\": \"$ADMIN\", \"beneficiary\": \"$BENEFICIARY\", \"token_address\": \"$TOKEN_ID\", \"total_amount\": 500000, \"start_time\": $START, \"cliff_duration\": 60, \"total_duration\": 200 }"
 ```
 
-### 7. Claim vested tokens
+### 7. Inspect a schedule
+
+Use the `scripts/query-schedule.sh` helper to read any vesting schedule by ID
+without writing a custom `stellar contract invoke` command:
+
+```bash
+chmod +x scripts/query-schedule.sh
+
+# Pass the contract ID and schedule ID as positional args
+./scripts/query-schedule.sh "$VESTING_ID" 1
+
+# Or set the env var and pass only the schedule ID
+VESTING_CONTRACT_ID="$VESTING_ID" ./scripts/query-schedule.sh "" 1
+```
+
+The script calls `get_schedule` as a simulation, so no signing or XLM fees
+are required.
+
+### 8. Claim vested tokens
 
 After 60 seconds (cliff period):
 
