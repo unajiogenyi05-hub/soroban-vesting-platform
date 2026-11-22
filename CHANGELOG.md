@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `if (!from || !amount)` validation guard in the `/burn` route handler that
   had no negative-path coverage.
 ### Tests
+- contracts/token/src/lib.rs: `test_transfer_admin_emits_exactly_admxfer_event`
+  (#224). Asserts that `transfer_admin()` emits exactly one event using
+  `env.events().all().len() == 1`, catching any future change that accidentally
+  adds or removes an event emission. Complements the existing
+  `test_event_transfer_admin` which checks the full event payload.
+  Also updates the `transfer_admin` doc comment to note the intentional event
+  and explain its purpose for off-chain indexers.
+### Tests
 - contracts/vesting/src/lib.rs: `test_transfer_admin_old_admin_loses_create_schedule` —
   verifies that after `transfer_admin()`, the old admin's auth no longer satisfies
   `require_admin()` and a `create_schedule` call with only the old admin's auth
