@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- scripts/examples/query-claimable.js: Node.js example script that queries
+  `get_claimable(schedule_id)` on the vesting contract directly via
+  `@stellar/stellar-sdk` v12.3.0 without the backend REST API (#265).
+  Builds an unsigned transaction and calls `server.simulateTransaction()` for a
+  read-only preflight — no signing or XLM fees required.  Decodes the `i128`
+  return value with `scValToNative` and prints it alongside the CPU/memory cost
+  breakdown.  Reads `VESTING_CONTRACT_ID`, `SCHEDULE_ID`, `SOURCE_PUBLIC_KEY`,
+  `STELLAR_RPC_URL`, and `STELLAR_NETWORK` from the environment with safe
+  testnet defaults.  Usage instructions in the file header and in
+  `docs/testnet-demo.md`.
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: two new tests for `get_claimable()` on
