@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Tests
+- backend/src/routes/token.test.js: `describe('POST /api/token/burn')` block
+  with three test cases (#236): 202 with valid `from` and `amount`, 400 when
+  `from` is missing, and 400 when `amount` is missing. Exercises the
+  `if (!from || !amount)` validation guard in the `/burn` route handler that
+  had no negative-path coverage.
+### Tests
 - contracts/vesting/src/lib.rs: `test_transfer_admin_old_admin_loses_create_schedule` —
   verifies that after `transfer_admin()`, the old admin's auth no longer satisfies
   `require_admin()` and a `create_schedule` call with only the old admin's auth

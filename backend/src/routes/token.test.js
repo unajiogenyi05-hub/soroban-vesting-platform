@@ -266,6 +266,36 @@ describe('Token routes', () => {
     });
   });
 
+  // ── burn ─────────────────────────────────────────────────────────────────
+
+  describe('POST /api/token/burn', () => {
+    it('returns 202 with valid body', async () => {
+      const res = await request(app)
+        .post('/api/token/burn')
+        .send({ from: 'GABC', amount: 500 });
+      expect(res.status).toBe(202);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('from', 'GABC');
+      expect(res.body.data).toHaveProperty('amount', 500);
+    });
+
+    it('returns 400 when from is missing', async () => {
+      const res = await request(app)
+        .post('/api/token/burn')
+        .send({ amount: 500 });
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('error');
+    });
+
+    it('returns 400 when amount is missing', async () => {
+      const res = await request(app)
+        .post('/api/token/burn')
+        .send({ from: 'GABC' });
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty('error');
+    });
+  });
+
   // ── pause / unpause ─────────────────────────────────────────────────────────
 
   describe('POST /api/token/pause and /unpause', () => {

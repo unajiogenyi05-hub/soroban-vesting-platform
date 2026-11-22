@@ -18,6 +18,9 @@ const { Router } = require('express');
 const { Keypair, nativeToScVal, scValToNative } = require('@stellar/stellar-sdk');
 const logger = require('../logger');
 const { simulateContractCall, validateStellarAddress } = require('../services/stellar');
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.VESTING_CONTRACT_ID || '',
+);
 
 const router = Router();
 
