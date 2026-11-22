@@ -1096,6 +1096,22 @@ mod tests {
         vesting.claim(&id); // must panic with VestingError::ScheduleNotActive
     }
 
+    // ── claim on a non-existent schedule id must panic ──────────────────────
+
+    /// claim() guards storage access with the `schedule not found`
+    /// expect-style error (`VestingError::ScheduleNotFound`, contract error
+    /// #6). The trap surfaces to the client as `Error(Contract, #6)`.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6)")] // VestingError::ScheduleNotFound
+    fn test_claim_nonexistent_schedule_panics() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        // Schedule 999 was never created — claim() must panic with
+        // "schedule not found" (VestingError::ScheduleNotFound).
+        vesting.claim(&999u64);
+    }
+
     // ── nothing to claim before cliff ────────────────────────────────────────
 
     #[test]

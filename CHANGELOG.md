@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests — 2026-11-05
+
+- contracts/vesting/src/lib.rs: new test
+  `test_claim_nonexistent_schedule_panics` (#242) verifying that claim()
+  panics with the `schedule not found` error when given a schedule ID that
+  was never created. The guard uses `panic_with_error!` with
+  `VestingError::ScheduleNotFound`, so the client-side trap message is
+  `Error(Contract, #6)`, asserted via
+  `#[should_panic(expected = "Error(Contract, #6)")]`.
+
 ### Fixed — 2026-11-05
 
 - contracts/vesting/src/lib.rs: removed the accidental duplicate definition
