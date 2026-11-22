@@ -1,0 +1,23 @@
+# Pre-commit hooks for local enforcement of formatting and linting.
+# Install: pip install pre-commit && pre-commit install
+# Run all hooks manually: pre-commit run --all-files
+#
+# CI already enforces these checks; running them locally catches issues before
+# pushing and avoids CI round-trips.
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: eslint-backend
+        name: eslint backend
+        entry: bash -c 'cd backend && npm run lint'
+        language: system
+        types: [javascript]
+        pass_filenames: false
