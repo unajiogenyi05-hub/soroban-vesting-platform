@@ -258,6 +258,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CONTRIBUTING.md updated with a note about `make lint-all` in the PR
   checklist section.
 
+### Added
+
+- scripts/check-ttl.sh: helper script that queries the remaining TTL for all
+  deployed contracts (token, vesting, multisig) using `stellar contract read`
+  and prints a warning when any contract's instance TTL falls below
+  `INSTANCE_BUMP_THRESHOLD` (518 400 ledgers, ~30 days) (#262).  Reads
+  contract IDs from `TOKEN_ID`, `VESTING_ID`, and `MULTISIG_ID` env vars,
+  falling back to `deployments.json` testnet values when unset.  Shows
+  remaining ledgers, approximate days, and the exact `extend_ttl` command to
+  run for any contract below the threshold.  Respects `STELLAR_NETWORK`;
+  sources `.env` if present.  Usage instructions in the script header; full
+  TTL reference in `docs/ttl.md`.
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: `test_create_schedule_future_start_time` (#63).
