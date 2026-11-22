@@ -403,9 +403,8 @@ Persistent entries (schedules, balances, proposals) are extended on every write.
 See [docs/ttl.md](docs/ttl.md) for full details on what expires, the restore
 procedure, and how to tune the constants for a production deployment.
 
-For a step-by-step recovery guide (detecting archival, running
-`stellar contract restore`, verifying restoration, and preventing recurrence)
-see [docs/disaster-recovery.md](docs/disaster-recovery.md).
+For automated keep-alive (shell script, Node.js, cron, and GitHub Actions
+workflow) see [docs/offchain-keepalive.md](docs/offchain-keepalive.md).
 
 ---
 
