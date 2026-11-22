@@ -296,6 +296,9 @@ them.
 
 ## Events
 
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
+
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("mint",)` | `(to, amount)` | `mint` |
