@@ -498,3 +498,30 @@ See the script header for the full usage and environment variables.
   proposals)
 - Use `revoke_confirmation` to withdraw a confirmation before execution
 - Explore `ProposalAction::UpdateThreshold` to change the required vote count
+
+---
+
+## Node.js SDK example: query claimable amount
+
+The script `scripts/examples/query-claimable.js` shows how to call
+`get_claimable` directly from Node.js using `@stellar/stellar-sdk`, without
+going through the backend REST API.  It is useful for developers building their
+own integrations.
+
+```bash
+# Install dependencies (run once from repo root)
+cd backend && npm ci && cd ..
+
+# Query schedule 1 on the deployed testnet contract
+VESTING_CONTRACT_ID=CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF \
+  node scripts/examples/query-claimable.js
+
+# Override schedule ID and RPC URL
+VESTING_CONTRACT_ID=<your-contract> \
+SCHEDULE_ID=3 \
+STELLAR_RPC_URL=https://soroban-testnet.stellar.org \
+  node scripts/examples/query-claimable.js
+```
+
+The script simulates the contract call (no signing or fees required) and prints
+the claimable token amount as a BigInt value.
