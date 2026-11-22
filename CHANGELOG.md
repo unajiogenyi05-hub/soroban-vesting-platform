@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-11-22
+
+- contracts/token/src/lib.rs: `test_decimals_returns_constructor_value` and
+  `test_decimals_zero_is_valid` (#230). Assert that `decimals()` returns exactly
+  the value supplied at construction time. The first test uses the standard
+  deploy helper (7u32) and the second deploys with 0u32 to confirm the stored
+  value is returned rather than the `.unwrap_or(7)` fallback.
+
 ### Added — 2026-10-16
 
 - CODE_OF_CONDUCT.md: Contributor Covenant 2.1 added at repository root (#117).

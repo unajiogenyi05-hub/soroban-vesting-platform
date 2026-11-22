@@ -830,6 +830,41 @@ mod tests {
         let _ = stranger;
     }
 
+    // ── Allowance / balance zero-value tests ─────────────────────────────────
+
+    /// decimals() must return exactly the value passed to the constructor.
+    /// The deploy() helper uses 7u32; this test asserts the round-trip so a
+    /// storage-key regression (which would fall back to unwrap_or(7)) would
+    /// still be caught when the deploy value differs.
+    #[test]
+    fn test_decimals_returns_constructor_value() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        assert_eq!(token.decimals(), 7);
+    }
+
+    /// decimals = 0 is a valid edge case (e.g. a whole-unit token).
+    /// A second deploy with 0u32 confirms that the stored value—not the
+    /// unwrap_or(7) fallback—is returned.
+    #[test]
+    fn test_decimals_zero_is_valid() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let contract_id = env.register(
+            TokenContract,
+            (
+                admin.clone(),
+                String::from_str(&env, "Zero Dec Token"),
+                String::from_str(&env, "ZDT"),
+                0u32,
+                0i128,
+            ),
+        );
+        let token = TokenContractClient::new(&env, &contract_id);
+        assert_eq!(token.decimals(), 0);
+    }
+
     // ── Overflow guards ───────────────────────────────────────────────────────
 
     /// Minting i128::MAX into a non-zero balance overflows the per-account
