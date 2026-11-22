@@ -392,6 +392,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and prevention by tuning keep-alive frequency. Linked from docs/ttl.md and
   README "Storage TTL constants" section.
 
+### Added — ci/260-validate-deployments-json
+
+- .github/workflows/ci.yml (#260): added "Validate deployments.json" step to
+  the contracts CI job. Runs `python3 -m json.tool deployments.json > /dev/null`
+  which exits non-zero on malformed JSON (merge conflicts, truncation, etc.).
+  `python3` is available on all GitHub-hosted Ubuntu runners with no extra
+  installation step.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Error Codes" section (#283). Documents all
