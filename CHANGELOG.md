@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vesting admin role. Linked from docs/testnet-demo.md "Multisig governance
   demo" step 1.
 ### Tests
+- contracts/multisig/src/lib.rs: `test_revoke_confirmation_after_execute_panics`
+  (#227). Verifies that `revoke_confirmation()` panics with "proposal not
+  pending" when called on an already-executed proposal. Exercises the
+  executed-proposal branch of the `proposal.status != ProposalStatus::Pending`
+  guard that was previously covered only by the happy-path
+  `test_revoke_and_reconfirm`.
+### Tests
 - contracts/vesting/src/lib.rs: `test_transfer_admin_old_admin_loses_create_schedule` —
   verifies that after `transfer_admin()`, the old admin's auth no longer satisfies
   `require_admin()` and a `create_schedule` call with only the old admin's auth
