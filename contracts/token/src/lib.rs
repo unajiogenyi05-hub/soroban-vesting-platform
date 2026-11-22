@@ -830,6 +830,19 @@ mod tests {
         let _ = stranger;
     }
 
+    // ── Allowance / balance zero-value tests ─────────────────────────────────
+
+    /// allowance() must return 0 for a fresh owner-spender pair where
+    /// approve() was never called.  This exercises the `.unwrap_or(0)` path
+    /// in `TokenContract::allowance`.
+    #[test]
+    fn test_allowance_of_unapproved_pair_returns_zero() {
+        let (env, contract_id, admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let spender = Address::generate(&env);
+        assert_eq!(token.allowance(&admin, &spender), 0);
+    }
+
     // ── Overflow guards ───────────────────────────────────────────────────────
 
     /// Minting i128::MAX into a non-zero balance overflows the per-account

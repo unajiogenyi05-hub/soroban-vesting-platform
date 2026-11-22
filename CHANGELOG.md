@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-11-22
+
+- contracts/token/src/lib.rs: `test_allowance_of_unapproved_pair_returns_zero` (#233).
+  Asserts that `allowance()` returns exactly `0` for a fresh owner-spender pair
+  where `approve()` was never called, exercising the `.unwrap_or(0)` fallback
+  in `TokenContract::allowance`.
+
 ### Added — 2026-10-16
 
 - CODE_OF_CONDUCT.md: Contributor Covenant 2.1 added at repository root (#117).
