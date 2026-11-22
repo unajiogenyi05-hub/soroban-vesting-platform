@@ -53,13 +53,12 @@
 //! State-changing entry points call `bump_instance()` to keep the instance
 //! alive on every write.  Pure read-only getters (`get_proposal`,
 //! `get_owners`, `get_threshold`, `proposal_count`, `has_confirmed`,
-//! `is_owner`) do NOT extend the TTL so they remain read-only calls.
+//! `get_confirmations`, `is_owner`) do NOT extend the TTL so they remain read-only calls.
 //! Use `extend_ttl()` to keep the instance alive from off-chain keep-alive
 //! bots.  Persistent Proposal and Confirm entries are bumped on every
 //! write (submit, confirm, revoke_confirmation, execute, cancel).
 
 #![no_std]
-#![allow(deprecated)]
 
 use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol, Val, Vec,
@@ -73,17 +72,11 @@ const PROP_COUNT: Symbol = symbol_short!("PROPCOUNT");
 
 // ─── TTL constants ────────────────────────────────────────────────────────────
 
-/// Extend instance and persistent storage to ~180 days (ledgers of ~5 s each).
-/// This equals the network's `max_entry_ttl` (3 110 400 ledgers on both
-/// testnet and mainnet as of protocol 29, per stellar-core soroban-settings).
-/// Values above `max_entry_ttl` are silently clamped by the host, so using
-/// the exact maximum is both correct and maximally protective against archival.
-pub const INSTANCE_BUMP_LEDGERS: u32 = 3_110_400;
-/// Only extend when the remaining TTL drops below ~30 days.
-pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
-/// Persistent entries use the same window.
-pub const PERSISTENT_BUMP_LEDGERS: u32 = 3_110_400;
-pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
+/// Re-exported from `common` — see that crate for the rationale.
+pub use common::{
+    INSTANCE_BUMP_LEDGERS, INSTANCE_BUMP_THRESHOLD, PERSISTENT_BUMP_LEDGERS,
+    PERSISTENT_BUMP_THRESHOLD,
+};
 
 // ─── Data types ──────────────────────────────────────────────────────────────
 
@@ -284,7 +277,10 @@ impl MultisigContract {
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        env.events().publish((EVT_CONFIRMED,), (proposal_id, owner));
+        env.events().publish(
+            (EVT_CONFIRMED,),
+            (proposal_id, owner, proposal.confirmation_count),
+        );
     }
 
     /// Revoke own confirmation from a pending proposal.
@@ -510,6 +506,55 @@ impl MultisigContract {
             .unwrap_or(false)
     }
 
+    /// Return the owners who have confirmed the proposal `proposal_id`.
+    ///
+    /// Addresses are returned in owner-list order. The result is empty when
+    /// nobody has confirmed (or the proposal does not exist). Read-only —
+    /// does not extend TTL or write any storage.
+    pub fn get_confirmations(env: Env, proposal_id: u64) -> Vec<Address> {
+        let owners: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&OWNERS)
+            .unwrap_or(Vec::new(&env));
+        let mut result = Vec::new(&env);
+        for owner in owners.iter() {
+            let key = DataKey::Confirm(proposal_id, owner.clone());
+            if env
+                .storage()
+                .persistent()
+                .get::<DataKey, bool>(&key)
+                .unwrap_or(false)
+            {
+                result.push_back(owner);
+            }
+        }
+        result
+    }
+
+    /// Return the IDs of all proposals whose status is `Pending`.
+    ///
+    /// Scans every proposal from `1` to `proposal_count()` and collects the
+    /// IDs of those still pending. This is an **O(n)** scan over all proposals
+    /// ever submitted — intended for the expected governance scale, not for
+    /// unbounded proposal histories.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn get_pending_proposals(env: Env) -> Vec<u64> {
+        let count: u64 = env.storage().instance().get(&PROP_COUNT).unwrap_or(0);
+        let mut result = Vec::new(&env);
+        for id in 1..=count {
+            let maybe: Option<ProposalData> =
+                env.storage().persistent().get(&DataKey::Proposal(id));
+            if let Some(p) = maybe {
+                if p.status == ProposalStatus::Pending {
+                    result.push_back(id);
+                }
+            }
+        }
+        result
+    }
+
     /// Return `true` if `address` is currently in the owner set, `false`
     /// otherwise.
     ///
@@ -521,6 +566,66 @@ impl MultisigContract {
             .get(&OWNERS)
             .unwrap_or(Vec::new(&env));
         owners.iter().any(|o| o == address)
+    }
+
+    /// Return `true` if a proposal is ready to execute: status is `Pending`
+    /// and `confirmation_count >= threshold`.
+    ///
+    /// Encapsulates the two-step check (`get_proposal` + `get_threshold`)
+    /// that callers would otherwise need to perform manually. Useful for UIs
+    /// and off-chain bots that poll proposal readiness without executing.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    ///
+    /// # Panics
+    /// - `"proposal not found"` — `proposal_id` does not exist in storage.
+    pub fn is_executable(env: Env, proposal_id: u64) -> bool {
+        let proposal: ProposalData = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Proposal(proposal_id))
+            .expect("proposal not found");
+        let threshold: u32 = env.storage().instance().get(&THRESHOLD).unwrap_or(0);
+        proposal.status == ProposalStatus::Pending && proposal.confirmation_count >= threshold
+    }
+
+    /// Return a page of proposals identified by `offset` and `limit`.
+    ///
+    /// Proposals are numbered from 1 to `proposal_count()` inclusive.
+    /// `offset` is zero-based: `offset = 0, limit = 10` returns proposals
+    /// 1–10; `offset = 10, limit = 10` returns proposals 11–20.
+    ///
+    /// If `offset` is beyond the last proposal, an empty `Vec` is returned.
+    /// If `offset + limit` exceeds the last proposal, the returned `Vec`
+    /// contains only the proposals that exist — no padding or error.
+    ///
+    /// Proposals that were archived and are no longer in persistent storage
+    /// are silently skipped so that archival of individual entries never
+    /// causes the call to panic.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn get_proposals_paginated(env: Env, offset: u64, limit: u64) -> Vec<ProposalData> {
+        let total: u64 = env.storage().instance().get(&PROP_COUNT).unwrap_or(0);
+        let mut result = Vec::new(&env);
+
+        if limit == 0 || offset >= total {
+            return result;
+        }
+
+        // IDs are 1-based; offset is 0-based.
+        let start = offset + 1;
+        let end = (offset + limit).min(total);
+
+        for id in start..=end {
+            if let Some(p) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, ProposalData>(&DataKey::Proposal(id))
+            {
+                result.push_back(p);
+            }
+        }
+        result
     }
 
     /// Extend the contract instance TTL to `INSTANCE_BUMP_LEDGERS`.
@@ -1098,6 +1203,31 @@ mod tests {
     }
 
     #[test]
+    fn test_get_confirmations() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "confirmations"),
+        );
+        assert_eq!(ms.get_confirmations(&id).len(), 0);
+
+        ms.confirm(&o1, &id);
+        let one = ms.get_confirmations(&id);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one.get(0).unwrap(), o1);
+
+        ms.confirm(&o2, &id);
+        let two = ms.get_confirmations(&id);
+        assert_eq!(two.len(), 2);
+        assert_eq!(two.get(0).unwrap(), o1);
+        assert_eq!(two.get(1).unwrap(), o2);
+    }
+
+    #[test]
     fn test_submit_and_execute() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();
         let ms = MultisigContractClient::new(&env, &contract_id);
@@ -1155,6 +1285,47 @@ mod tests {
         ms.execute(&id);
     }
 
+    /// confirm() emits a "confirmed" event and the payload now includes
+    /// confirmation_count.  We verify the event is emitted after each
+    /// confirmation and that the on-chain count (which equals the emitted
+    /// value) is 1 after the first confirm and 2 after the second — #129.
+    #[test]
+    fn test_confirmed_event_includes_count() {
+        use soroban_sdk::testutils::Events;
+
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "count test"),
+        );
+
+        // First confirmation: count should be 1.
+        ms.confirm(&o1, &id);
+        // Events are non-empty — at least the submit and first confirm events.
+        assert!(
+            !env.events().all().events().is_empty(),
+            "expected events after first confirmation"
+        );
+        // The emitted confirmation_count equals proposal.confirmation_count.
+        assert_eq!(
+            ms.get_proposal(&id).confirmation_count,
+            1u32,
+            "confirmation_count should be 1 after first confirm"
+        );
+
+        // Second confirmation: count should be 2.
+        ms.confirm(&o2, &id);
+        assert_eq!(
+            ms.get_proposal(&id).confirmation_count,
+            2u32,
+            "confirmation_count should be 2 after second confirm"
+        );
+    }
+
     #[test]
     fn test_is_owner() {
         let (env, contract_id, o1, _o2, _o3) = setup_2of3();
@@ -1163,6 +1334,107 @@ mod tests {
         assert!(ms.is_owner(&o1));
         let stranger = Address::generate(&env);
         assert!(!ms.is_owner(&stranger));
+    }
+
+    // ── is_executable ────────────────────────────────────────────────────────
+
+    /// is_executable returns false before threshold confirmations are reached.
+    #[test]
+    fn test_is_executable_false_before_threshold() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "is_executable test"),
+        );
+
+        // No confirmations yet — not executable.
+        assert!(!ms.is_executable(&id));
+
+        // One confirmation (threshold is 2) — still not executable.
+        ms.confirm(&o1, &id);
+        assert!(!ms.is_executable(&id));
+    }
+
+    /// is_executable returns true exactly when confirmation_count >= threshold.
+    #[test]
+    fn test_is_executable_true_at_threshold() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "is_executable threshold test"),
+        );
+
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id); // threshold = 2, now met
+
+        assert!(
+            ms.is_executable(&id),
+            "should be executable once threshold is reached"
+        );
+    }
+
+    /// is_executable returns false after the proposal has been executed.
+    #[test]
+    fn test_is_executable_false_after_execution() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "is_executable after execute"),
+        );
+
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+
+        // After execution the status is Executed — no longer Pending.
+        assert!(
+            !ms.is_executable(&id),
+            "executed proposal should not be executable again"
+        );
+    }
+
+    /// is_executable returns false after the proposal has been cancelled.
+    #[test]
+    fn test_is_executable_false_after_cancel() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "is_executable after cancel"),
+        );
+
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.cancel(&o1, &id);
+
+        assert!(
+            !ms.is_executable(&id),
+            "cancelled proposal should not be executable"
+        );
+    }
+
+    /// is_executable panics when the proposal does not exist.
+    #[test]
+    #[should_panic(expected = "proposal not found")]
+    fn test_is_executable_nonexistent_panics() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        ms.is_executable(&999u64);
     }
 
     #[test]
@@ -1275,6 +1547,56 @@ mod tests {
             &String::from_str(&env, "test"),
         );
         ms.cancel(&o2, &id);
+    }
+
+    /// Attempting to cancel an already-executed proposal must panic with
+    /// "proposal not pending".  Mirrors `test_execute_twice_panics` but for
+    /// the cancel path.
+    #[test]
+    #[should_panic(expected = "proposal not pending")]
+    fn test_cancel_executed_proposal_panics() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let target = env.register(stub_token::StubToken, ());
+
+        // Submit, confirm to threshold, execute.
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &target, symbol_short!("ping")),
+            &String::from_str(&env, "cancel after execute test"),
+        );
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+
+        // The proposal is now Executed — cancel() must panic.
+        ms.cancel(&o1, &id);
+    }
+
+    // ── Issue #69: revoke_confirmation() without a prior confirm() panics ────
+    //
+    // revoke_confirmation() reads DataKey::Confirm(proposal_id, owner) and
+    // panics with "not confirmed" if the key is absent or false.
+    // This guard was implemented but not previously tested for the case where
+    // the caller has NEVER called confirm() at all.
+
+    #[test]
+    #[should_panic(expected = "not confirmed")]
+    fn test_revoke_confirmation_without_confirming_panics() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        // Submit a proposal — o1 is proposer but has NOT called confirm().
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "revoke without confirming"),
+        );
+
+        // o2 has also not confirmed. Calling revoke_confirmation() here must
+        // panic with "not confirmed" because no confirmation exists to revoke.
+        ms.revoke_confirmation(&o2, &id);
     }
 
     #[test]
@@ -1391,5 +1713,344 @@ mod tests {
         ms.confirm(&o2, &id);
         ms.execute(&id);
         assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Executed);
+    }
+
+    // ── Issue #71: proposal_count() increments correctly across multiple submits
+
+    /// proposal_count() must equal the number of proposals submitted so far.
+    /// Asserts 0 before any submit, then 1, 2, 3 after successive submits.
+    #[test]
+    fn test_proposal_count_increments() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        // No proposals yet — count must be 0.
+        assert_eq!(
+            ms.proposal_count(),
+            0u64,
+            "initial proposal_count should be 0"
+        );
+
+        // Submit first proposal.
+        ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "proposal 1"),
+        );
+        assert_eq!(
+            ms.proposal_count(),
+            1u64,
+            "proposal_count should be 1 after first submit"
+        );
+
+        // Submit second proposal.
+        ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "proposal 2"),
+        );
+        assert_eq!(
+            ms.proposal_count(),
+            2u64,
+            "proposal_count should be 2 after second submit"
+        );
+
+        // Submit third proposal.
+        ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "proposal 3"),
+        );
+        assert_eq!(
+            ms.proposal_count(),
+            3u64,
+            "proposal_count should be 3 after third submit"
+        );
+    }
+
+    // ── get_pending_proposals ────────────────────────────────────────────────
+
+    /// With no proposals submitted, get_pending_proposals returns an empty list.
+    #[test]
+    fn test_get_pending_proposals_empty() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let pending = ms.get_pending_proposals();
+        assert_eq!(pending.len(), 0, "no proposals means empty pending list");
+    }
+
+    /// get_pending_proposals returns the IDs of all pending proposals and
+    /// excludes executed and cancelled ones.
+    #[test]
+    fn test_get_pending_proposals_after_submits_and_executes() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        // id 1 — will be executed.
+        let id1 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "executed proposal"),
+        );
+        // id 2 — will remain pending.
+        let id2 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "pending proposal"),
+        );
+        // id 3 — will be cancelled.
+        let id3 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "cancelled proposal"),
+        );
+        // id 4 — will remain pending.
+        let id4 = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "another pending proposal"),
+        );
+
+        // Execute id1.
+        ms.confirm(&o1, &id1);
+        ms.confirm(&o2, &id1);
+        ms.execute(&id1);
+
+        // Cancel id3.
+        ms.cancel(&o1, &id3);
+
+        let pending = ms.get_pending_proposals();
+        assert_eq!(pending.len(), 2, "only id2 and id4 should be pending");
+        assert_eq!(pending.get(0).unwrap(), id2);
+        assert_eq!(pending.get(1).unwrap(), id4);
+    }
+
+    /// get_pending_proposals excludes a proposal that has been executed even
+    /// when it was the only proposal.
+    #[test]
+    fn test_get_pending_proposals_excludes_executed() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "only proposal"),
+        );
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+
+        assert_eq!(ms.get_pending_proposals().len(), 0);
+    }
+
+    /// get_pending_proposals excludes a cancelled proposal.
+    #[test]
+    fn test_get_pending_proposals_excludes_cancelled() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &stub_id, symbol_short!("ping")),
+            &String::from_str(&env, "cancelled proposal"),
+        );
+        ms.cancel(&o1, &id);
+
+        assert_eq!(ms.get_pending_proposals().len(), 0);
+    }
+
+    // ── get_proposals_paginated ───────────────────────────────────────────────
+
+    /// Helper: submit N proposals each with the description "proposal".
+    fn submit_n_proposals(
+        ms: &MultisigContractClient,
+        env: &Env,
+        proposer: &Address,
+        stub_id: &Address,
+        n: u64,
+    ) {
+        let desc = soroban_sdk::String::from_str(env, "proposal");
+        for _i in 1..=n {
+            ms.submit(
+                proposer,
+                &call_action(env, stub_id, symbol_short!("ping")),
+                &desc,
+            );
+        }
+    }
+
+    /// First page: offset=0, limit=3 on five proposals returns IDs 1,2,3.
+    #[test]
+    fn test_paginated_first_page() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 5);
+
+        let page = ms.get_proposals_paginated(&0u64, &3u64);
+        assert_eq!(page.len(), 3, "first page should have 3 entries");
+        assert_eq!(page.get(0).unwrap().id, 1u64);
+        assert_eq!(page.get(1).unwrap().id, 2u64);
+        assert_eq!(page.get(2).unwrap().id, 3u64);
+    }
+
+    /// Second page: offset=3, limit=3 on five proposals returns IDs 4,5.
+    #[test]
+    fn test_paginated_second_page() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 5);
+
+        let page = ms.get_proposals_paginated(&3u64, &3u64);
+        assert_eq!(page.len(), 2, "second page should have 2 entries (clipped at total)");
+        assert_eq!(page.get(0).unwrap().id, 4u64);
+        assert_eq!(page.get(1).unwrap().id, 5u64);
+    }
+
+    /// Offset beyond total returns an empty Vec — no panic.
+    #[test]
+    fn test_paginated_offset_beyond_total() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 3);
+
+        // offset=10 is way past proposal count=3
+        let page = ms.get_proposals_paginated(&10u64, &5u64);
+        assert_eq!(page.len(), 0, "offset beyond total should return empty Vec");
+    }
+
+    /// Zero proposals: any page returns an empty Vec.
+    #[test]
+    fn test_paginated_no_proposals() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+
+        let page = ms.get_proposals_paginated(&0u64, &10u64);
+        assert_eq!(page.len(), 0, "no proposals: page should be empty");
+    }
+
+    /// limit=0 always returns empty.
+    #[test]
+    fn test_paginated_zero_limit() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 3);
+
+        let page = ms.get_proposals_paginated(&0u64, &0u64);
+        assert_eq!(page.len(), 0, "limit=0 should return empty Vec");
+    }
+
+    /// Paginated view is read-only: proposal_count is unchanged after calls.
+    #[test]
+    fn test_paginated_no_write_footprint() {
+        let (env, contract_id, o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let stub_id = env.register(stub_token::StubToken, ());
+
+        submit_n_proposals(&ms, &env, &o1, &stub_id, 4);
+        let count_before = ms.proposal_count();
+
+        ms.get_proposals_paginated(&0u64, &2u64);
+        ms.get_proposals_paginated(&2u64, &2u64);
+
+        assert_eq!(
+            ms.proposal_count(),
+            count_before,
+            "paginated read must not change proposal_count"
+        );
+    }
+}
+
+// ─── Property-based tests ─────────────────────────────────────────────────────
+//
+// Uses proptest to verify the invariant:
+//   confirmation_count <= owners.len()
+//
+// for any number of owners (1–5) and any subset of them confirming a proposal.
+// The "already confirmed" guard in confirm() ensures each owner can only add 1
+// to the count, so confirmation_count is always bounded by the owner set size.
+//
+// Run with: cargo test --package multisig prop_
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use soroban_sdk::{testutils::Address as _, Env, String, Vec};
+
+    proptest! {
+        /// confirmation_count never exceeds the number of owners.
+        ///
+        /// Generates a multisig with N owners (1–5), submits one proposal,
+        /// then confirms with a random subset of size 0–N. Asserts that the
+        /// stored confirmation_count equals the subset size and is <= N.
+        #[test]
+        fn prop_confirmation_count_never_exceeds_owner_count(
+            // Number of owners: 1 to 5.
+            n_owners in 1usize..=5usize,
+            // Bit-mask selecting which owners confirm (up to 5 bits).
+            confirm_mask in 0u8..=31u8,
+        ) {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            // Build owner list.
+            let mut owners: Vec<Address> = Vec::new(&env);
+            let mut owner_vec: std::vec::Vec<Address> = std::vec::Vec::new();
+            for _ in 0..n_owners {
+                let o = Address::generate(&env);
+                owners.push_back(o.clone());
+                owner_vec.push(o);
+            }
+
+            // threshold = 1 so we can confirm without immediately being forced
+            // to execute; we only care about confirmation_count here.
+            let contract_id = env.register(MultisigContract, (owners, 1u32));
+            let ms = MultisigContractClient::new(&env, &contract_id);
+
+            // Submit a proposal from the first owner.
+            let proposer = owner_vec[0].clone();
+            let proposal_id = ms.submit(
+                &proposer,
+                &ProposalAction::AddOwner(Address::generate(&env)),
+                &String::from_str(&env, "prop_confirmation_count test"),
+            );
+
+            // Confirm with the subset selected by confirm_mask.
+            let mut expected_count: u32 = 0;
+            for (i, owner) in owner_vec.iter().enumerate() {
+                if i < n_owners && (confirm_mask >> i) & 1 == 1 {
+                    ms.confirm(owner, &proposal_id);
+                    expected_count += 1;
+                }
+            }
+
+            let proposal = ms.get_proposal(&proposal_id);
+            let actual_count = proposal.confirmation_count;
+
+            // Invariant: count matches how many owners confirmed.
+            prop_assert_eq!(
+                actual_count, expected_count,
+                "confirmation_count={actual_count} != expected={expected_count}"
+            );
+            // Invariant: count never exceeds owner count.
+            prop_assert!(
+                actual_count <= n_owners as u32,
+                "confirmation_count={actual_count} > n_owners={n_owners}"
+            );
+        }
     }
 }

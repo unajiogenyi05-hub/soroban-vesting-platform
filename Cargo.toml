@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
+    "contracts/common",
     "contracts/vesting",
     "contracts/multisig",
     "contracts/token",
 ]
 
 [workspace.dependencies]
-soroban-sdk = { version = "27.0.6" }
+soroban-sdk = { version = "29.0.1" }
 
 [profile.release]
 opt-level = "z"
