@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — docs/254-disaster-recovery
+
+- docs/disaster-recovery.md (#254): guide for restoring archived contract
+  entries using `stellar contract restore`. Covers detection (empty
+  `stellar contract read` output), instance-storage restore, persistent-entry
+  restore for all three contracts (schedules, proposals, balances, allowances),
+  post-restore verification via `stellar contract read` and read-only getters,
+  and prevention by tuning keep-alive frequency. Linked from docs/ttl.md and
+  README "Storage TTL constants" section.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
