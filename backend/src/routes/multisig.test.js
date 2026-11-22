@@ -79,9 +79,10 @@ describe('Multisig routes', () => {
       expect(res.status).toBe(202);
     });
 
-    it('returns 400 when proposalId missing', async () => {
+    it('returns 400 when proposalId is missing', async () => {
       const res = await request(app).post('/api/multisig/execute').send({});
       expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
     });
   });
 

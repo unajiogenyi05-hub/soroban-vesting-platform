@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests — 2026-11-22
+
+- backend/src/routes/multisig.test.js: `POST /api/multisig/execute`
+  validation test (#239). The handler rejects a missing `proposalId` with
+  HTTP 400, but the existing test only asserted the status code. The test
+  now also asserts `res.body.error` is defined, locking in the error
+  response shape so a refactor that drops the error field is caught.
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
