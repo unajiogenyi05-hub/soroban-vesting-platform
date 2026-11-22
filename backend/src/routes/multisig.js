@@ -17,6 +17,9 @@
 const { Router } = require('express');
 const logger = require('../logger');
 const { validateStellarAddress } = require('../services/stellar');
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.MULTISIG_CONTRACT_ID || '',
+);
 
 const router = Router();
 
