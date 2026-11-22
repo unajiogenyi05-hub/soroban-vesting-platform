@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests — 2026-11-05
+
+- backend/src/app.test.js: new test verifying that unknown routes
+  return a 404 with a JSON error body (#235). The catch-all handler
+  in src/index.js responds with { error: 'Not found' }; the test
+  asserts both the 404 status and that res.body.error is defined,
+  across GET /api, GET non-/api, and POST cases.
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: two new tests for `get_claimable()` on
