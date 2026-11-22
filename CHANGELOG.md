@@ -277,6 +277,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of `test_create_schedule_minimum_amount` introduced in #164, which made the
   vesting test binary fail to compile (E0428: name defined multiple times).
 
+### Tests — 2026-11-05
+
+- backend/src/routes/token.test.js: three new tests for the
+  GET /api/token/allowance validation (#241):
+  - 200 with an `allowance` field when both `owner` and `spender`
+    query params are present
+  - 400 with an `error` body when `owner` is missing
+  - 400 with an `error` body when `spender` is missing
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: `test_create_schedule_future_start_time` (#63).
