@@ -382,16 +382,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing `description` (400), exercising the validation guard in
   `multisig.js` that returns 400 when either field is absent.
 
-### Added — docs/250-offchain-keepalive
+### Added — docs/254-disaster-recovery
 
-- docs/offchain-keepalive.md (#250): guide for running a keep-alive bot that
-  calls `extend_ttl()` on all three contracts. Covers why keep-alive is needed
-  (TTL constants, archival risk for idle deployments), a shell script example
-  using `stellar contract invoke`, a Node.js example using
-  `@stellar/stellar-sdk` simulation, and scheduling options (cron job and
-  GitHub Actions monthly workflow). Includes security notes on using a
-  dedicated low-privilege key. Linked from docs/ttl.md and README "Storage TTL
-  constants" section.
+- docs/disaster-recovery.md (#254): guide for restoring archived contract
+  entries using `stellar contract restore`. Covers detection (empty
+  `stellar contract read` output), instance-storage restore, persistent-entry
+  restore for all three contracts (schedules, proposals, balances, allowances),
+  post-restore verification via `stellar contract read` and read-only getters,
+  and prevention by tuning keep-alive frequency. Linked from docs/ttl.md and
+  README "Storage TTL constants" section.
 
 ### Added — 2026-10-16
 
