@@ -1599,6 +1599,30 @@ mod tests {
         ms.revoke_confirmation(&o2, &id);
     }
 
+    /// revoke_confirmation() on an already-executed proposal must panic with
+    /// "proposal not pending" — the executed-proposal branch was previously
+    /// untested.
+    #[test]
+    #[should_panic(expected = "proposal not pending")]
+    fn test_revoke_confirmation_after_execute_panics() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let target = env.register(stub_token::StubToken, ());
+
+        // Submit, confirm to threshold, execute.
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &target, symbol_short!("ping")),
+            &String::from_str(&env, "revoke after execute test"),
+        );
+        ms.confirm(&o1, &id);
+        ms.confirm(&o2, &id);
+        ms.execute(&id);
+
+        // The proposal is now Executed — revoke_confirmation() must panic.
+        ms.revoke_confirmation(&o1, &id);
+    }
+
     #[test]
     fn test_revoke_drops_below_threshold_then_reconfirm_executes() {
         let (env, contract_id, o1, o2, _o3) = setup_2of3();
