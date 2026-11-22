@@ -370,10 +370,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-11-22
 
-- contracts/token/src/lib.rs: `test_balance_of_unknown_address_returns_zero` (#232).
-  Asserts that `balance()` returns exactly `0` for an address that has never
-  held tokens, exercising the `.unwrap_or(0)` fallback in
-  `TokenContract::balance_of`.
+- contracts/token/src/lib.rs: `test_allowance_of_unapproved_pair_returns_zero` (#233).
+  Asserts that `allowance()` returns exactly `0` for a fresh owner-spender pair
+  where `approve()` was never called, exercising the `.unwrap_or(0)` fallback
+  in `TokenContract::allowance`.
 
 ### Added — 2026-10-16
 
