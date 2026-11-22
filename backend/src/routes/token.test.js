@@ -128,13 +128,31 @@ describe('Token routes', () => {
   // ── allowance ───────────────────────────────────────────────────────────────
 
   describe('GET /api/token/allowance', () => {
-    it('returns allowance stub with owner and spender', async () => {
-      const res = await request(app).get('/api/token/allowance?owner=GABC&spender=GDEF');
+    it('returns 200 with allowance field when owner and spender are provided', async () => {
+      const res = await request(app).get(
+        '/api/token/allowance?owner=GABC&spender=GDEF'
+      );
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('allowance');
+      expect(typeof res.body.data.allowance).toBe('number');
+      expect(res.body.data.owner).toBe('GABC');
+      expect(res.body.data.spender).toBe('GDEF');
     });
 
-    it('returns 400 when query params missing', async () => {
+    it('returns 400 when owner param is missing', async () => {
+      const res = await request(app).get('/api/token/allowance?spender=GDEF');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('returns 400 when spender param is missing', async () => {
+      const res = await request(app).get('/api/token/allowance?owner=GABC');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('returns 400 when both query params missing', async () => {
       const res = await request(app).get('/api/token/allowance');
       expect(res.status).toBe(400);
     });

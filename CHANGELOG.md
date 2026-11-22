@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests — 2026-11-05
+
+- backend/src/routes/token.test.js: three new tests for the
+  GET /api/token/allowance validation (#241):
+  - 200 with an `allowance` field when both `owner` and `spender`
+    query params are present
+  - 400 with an `error` body when `owner` is missing
+  - 400 with an `error` body when `spender` is missing
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: two new tests for `get_claimable()` on
