@@ -277,17 +277,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of `test_create_schedule_minimum_amount` introduced in #164, which made the
   vesting test binary fail to compile (E0428: name defined multiple times).
 
-### Tests — 2026-11-05
-
-- contracts/vesting/src/lib.rs: new test
-  `test_revoke_after_full_vest_sends_all_to_beneficiary` (#244) covering
-  revoke() called exactly at full vest (now == start_time + total_duration).
-  At full vest `vested_amount() == total_amount`, so unvested == 0: the test
-  asserts revoke() returns 0, the beneficiary receives the entire
-  `total_amount` (as unclaimed vested tokens), the recipient (treasury)
-  receives 0, the contract holds no residual tokens, and the schedule is
-  marked `Revoked`.
-
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: `test_create_schedule_future_start_time` (#63).
