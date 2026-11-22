@@ -200,6 +200,24 @@ describe('Vesting routes', () => {
         .send({ ...valid, cliffDuration: 200, totalDuration: 100 });
       expect(res.status).toBe(400);
     });
+
+    it('returns 400 when totalDuration is zero', async () => {
+      const res = await request(app)
+        .post('/api/vesting/schedule')
+        .send({ ...valid, totalDuration: 0 });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('totalDuration must be positive');
+    });
+
+    it('returns 400 when totalDuration is missing', async () => {
+      const withoutDuration = { ...valid };
+      delete withoutDuration.totalDuration;
+      const res = await request(app)
+        .post('/api/vesting/schedule')
+        .send(withoutDuration);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('totalDuration must be positive');
+    });
   });
 
   // ── POST /claim ────────────────────────────────────────────────────────────
