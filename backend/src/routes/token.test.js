@@ -57,12 +57,67 @@ describe('Token routes', () => {
 
   // ── info ────────────────────────────────────────────────────────────────────
 
-  describe('GET /api/token/info', () => {
-    it('returns token info stub', async () => {
+  describe('GET /api/token/info — stub fallback', () => {
+    beforeEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('returns stub token info when SOURCE_SECRET_KEY is absent', async () => {
       const res = await request(app).get('/api/token/info');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('symbol');
+      expect(res.body.data.name).toBe('Vesting Token');
+      expect(res.body.data.symbol).toBe('VEST');
+      expect(res.body.data.decimals).toBe(7);
+      expect(res.body.data.totalSupply).toBe(0);
+      expect(res.body.data).toHaveProperty('note');
+      expect(mockSimulate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('GET /api/token/info — live call', () => {
+    beforeEach(() => {
+      process.env.SOURCE_SECRET_KEY = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
+    });
+    afterEach(() => { delete process.env.SOURCE_SECRET_KEY; });
+
+    it('calls simulateContractCall four times in parallel and merges results', async () => {
+      const { scValToNative } = require('@stellar/stellar-sdk');
+      // Four sequential mockReturnValueOnce calls cover name, symbol, decimals, total_supply
+      scValToNative
+        .mockReturnValueOnce('Live Token')
+        .mockReturnValueOnce('LVT')
+        .mockReturnValueOnce(BigInt(7))
+        .mockReturnValueOnce(BigInt(500000));
+
+      const res = await request(app).get('/api/token/info');
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.name).toBe('Live Token');
+      expect(res.body.data.symbol).toBe('LVT');
+      expect(res.body.data.decimals).toBe(7);
+      expect(res.body.data.totalSupply).toBe('500000');
+      expect(res.body.data.contractId).toBe(process.env.TOKEN_CONTRACT_ID);
+      expect(res.body.data).not.toHaveProperty('note');
+      expect(mockSimulate).toHaveBeenCalledTimes(4);
+      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'name' }));
+      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'symbol' }));
+      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'decimals' }));
+      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'total_supply' }));
+    });
+
+    it('propagates errors from any simulateContractCall to the error handler', async () => {
+      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      const res = await request(app).get('/api/token/info');
+      expect(res.status).toBe(500);
+    });
+
+    it('returns token info stub shape with name, symbol, decimals, and totalSupply', async () => {
+      const res = await request(app).get('/api/token/info');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty('name');
+      expect(res.body.data).toHaveProperty('symbol');
+      expect(res.body.data).toHaveProperty('decimals');
+      expect(res.body.data).toHaveProperty('totalSupply');
     });
   });
 
@@ -129,13 +184,31 @@ describe('Token routes', () => {
   // ── allowance ───────────────────────────────────────────────────────────────
 
   describe('GET /api/token/allowance', () => {
-    it('returns allowance stub with owner and spender', async () => {
-      const res = await request(app).get('/api/token/allowance?owner=GABC&spender=GDEF');
+    it('returns 200 with allowance field when owner and spender are provided', async () => {
+      const res = await request(app).get(
+        '/api/token/allowance?owner=GABC&spender=GDEF'
+      );
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('allowance');
+      expect(typeof res.body.data.allowance).toBe('number');
+      expect(res.body.data.owner).toBe('GABC');
+      expect(res.body.data.spender).toBe('GDEF');
     });
 
-    it('returns 400 when query params missing', async () => {
+    it('returns 400 when owner param is missing', async () => {
+      const res = await request(app).get('/api/token/allowance?spender=GDEF');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('returns 400 when spender param is missing', async () => {
+      const res = await request(app).get('/api/token/allowance?owner=GABC');
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
+    });
+
+    it('returns 400 when both query params missing', async () => {
       const res = await request(app).get('/api/token/allowance');
       expect(res.status).toBe(400);
     });
