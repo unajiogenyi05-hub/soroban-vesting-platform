@@ -126,6 +126,14 @@ Before opening a PR, confirm:
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`
 - [ ] PR description references the related issue with `Closes #<number>`
 
+You can run both Rust and backend linters together from the repo root:
+
+```bash
+make lint-all
+```
+
+This runs `cargo fmt --check`, `cargo clippy`, and `npm run lint` in sequence.
+
 ---
 
 ## Project Structure
