@@ -249,6 +249,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Respects `STELLAR_NETWORK` and sources `.env` if present.  Usage instructions
   in the script header and in `docs/testnet-demo.md` (new step 7).
 
+### Added
+
+- Makefile: `lint-all` target that runs `lint` (cargo fmt --check + cargo
+  clippy) followed by `cd backend && npm run lint` (#261).  Contributors can
+  now run a single command from the repo root to check both the Rust contracts
+  and the Node.js backend in sequence.  `.PHONY` and `help` output updated.
+  CONTRIBUTING.md updated with a note about `make lint-all` in the PR
+  checklist section.
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: `test_create_schedule_future_start_time` (#63).

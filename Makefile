@@ -90,6 +90,9 @@ test-coverage:
 	cargo tarpaulin --all --engine llvm --out Html --output-dir coverage/
 	@echo "Coverage report: coverage/tarpaulin-report.html"
 
+lint-all: lint
+	cd backend && npm run lint
+
 # ── Clean ─────────────────────────────────────────────────────────────────────
 clean:
 	cargo clean
