@@ -20,14 +20,9 @@ const { simulateContractCall, validateStellarAddress } = require('../services/st
 const logger = require('../logger');
 
 const router = Router();
-const CONTRACT_ID = process.env.TOKEN_CONTRACT_ID || '';
-
-function contractIdMiddleware(req, res, next) {
-  const id = req.body?.contractId || req.query?.contractId || CONTRACT_ID;
-  if (!id) return res.status(400).json({ error: 'contractId is required' });
-  req.contractId = id;
-  next();
-}
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.TOKEN_CONTRACT_ID || '',
+);
 
 function rejectInvalidAddress(res, field, value) {
   if (!validateStellarAddress(value)) {
@@ -37,8 +32,43 @@ function rejectInvalidAddress(res, field, value) {
   return false;
 }
 
+/**
+ * GET /api/token/info
+ *
+ * When TOKEN_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates name(),
+ * symbol(), decimals(), and total_supply() in parallel and merges the results.
+ * Falls back to hardcoded stub values when either env var is absent.
+ */
 router.get('/info', contractIdMiddleware, async (req, res, next) => {
   try {
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+
+      const call = (method) => simulateContractCall({
+        contractId: req.contractId,
+        method,
+        args: [],
+        sourceKeypair,
+      });
+
+      const [nameResult, symbolResult, decimalsResult, totalSupplyResult] =
+        await Promise.all([call('name'), call('symbol'), call('decimals'), call('total_supply')]);
+
+      const name = scValToNative(nameResult.result.retval);
+      const symbol = scValToNative(symbolResult.result.retval);
+      const decimals = Number(scValToNative(decimalsResult.result.retval));
+      const totalSupply = scValToNative(totalSupplyResult.result.retval).toString();
+
+      logger.info(`token info contractId=${req.contractId} name=${name} symbol=${symbol}`);
+      return res.json({
+        success: true,
+        data: { contractId: req.contractId, name, symbol, decimals, totalSupply },
+      });
+    }
+
+    // Stub fallback: contract not configured.
     res.json({
       success: true,
       data: {
@@ -47,7 +77,7 @@ router.get('/info', contractIdMiddleware, async (req, res, next) => {
         symbol: 'VEST',
         decimals: 7,
         totalSupply: 0,
-        note: 'Set TOKEN_CONTRACT_ID to read live data.',
+        note: 'Set TOKEN_CONTRACT_ID and SOURCE_SECRET_KEY to read live data.',
       },
     });
   } catch (err) {
