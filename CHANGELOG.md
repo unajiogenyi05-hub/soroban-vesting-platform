@@ -370,11 +370,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-11-22
 
-- contracts/token/src/lib.rs: `test_decimals_returns_constructor_value` and
-  `test_decimals_zero_is_valid` (#230). Assert that `decimals()` returns exactly
-  the value supplied at construction time. The first test uses the standard
-  deploy helper (7u32) and the second deploys with 0u32 to confirm the stored
-  value is returned rather than the `.unwrap_or(7)` fallback.
+- contracts/token/src/lib.rs: `test_allowance_of_unapproved_pair_returns_zero` (#233).
+  Asserts that `allowance()` returns exactly `0` for a fresh owner-spender pair
+  where `approve()` was never called, exercising the `.unwrap_or(0)` fallback
+  in `TokenContract::allowance`.
+
+### Added — 2026-11-22
+
+- backend/src/routes/multisig.test.js: three test cases for `POST /api/multisig/proposal` (#237).
+  Covers the happy path (202 with valid body), missing `proposer` (400), and
+  missing `description` (400), exercising the validation guard in
+  `multisig.js` that returns 400 when either field is absent.
+
+### Added — docs/254-disaster-recovery
+
+- docs/disaster-recovery.md (#254): guide for restoring archived contract
+  entries using `stellar contract restore`. Covers detection (empty
+  `stellar contract read` output), instance-storage restore, persistent-entry
+  restore for all three contracts (schedules, proposals, balances, allowances),
+  post-restore verification via `stellar contract read` and read-only getters,
+  and prevention by tuning keep-alive frequency. Linked from docs/ttl.md and
+  README "Storage TTL constants" section.
+
+### Added — ci/260-validate-deployments-json
+
+- .github/workflows/ci.yml (#260): added "Validate deployments.json" step to
+  the contracts CI job. Runs `python3 -m json.tool deployments.json > /dev/null`
+  which exits non-zero on malformed JSON (merge conflicts, truncation, etc.).
+  `python3` is available on all GitHub-hosted Ubuntu runners with no extra
+  installation step.
+
+### Added — ci/259-cargo-deny
+
+- deny.toml (#259): cargo-deny configuration at the workspace root. Allows
+  MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, Unicode-DFS-2016, ISC,
+  BSD-2-Clause, BSD-3-Clause, 0BSD, and CC0-1.0 licenses (all licenses
+  present in the Stellar/Soroban dependency tree). Denies unlicensed and
+  copyleft crates. Warns on duplicate crate versions. Restricts sources to
+  crates.io only.
+
+- .github/workflows/ci.yml (#259): two new steps in the contracts job —
+  "Install cargo-deny" (cargo install cargo-deny --locked) and "Dependency
+  check (licenses + advisories)" (cargo deny check). The check runs after
+  the WASM build and fails the job on license violations or unpatched
+  security advisories.
 
 ### Added — 2026-10-16
 

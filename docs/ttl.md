@@ -87,6 +87,9 @@ stellar contract restore \
   --key <XDR_KEY>
 ```
 
+For a step-by-step recovery procedure covering detection, verification, and
+prevention see [docs/disaster-recovery.md](disaster-recovery.md).
+
 ## Choosing constants
 
 The threshold/extend pair follows the standard Soroban pattern: only extend
@@ -205,3 +208,6 @@ stellar contract invoke \
   --network mainnet \
   -- extend_ttl
 ```
+
+For shell and Node.js examples and a full scheduling guide (cron and GitHub
+Actions) see [docs/offchain-keepalive.md](offchain-keepalive.md).
