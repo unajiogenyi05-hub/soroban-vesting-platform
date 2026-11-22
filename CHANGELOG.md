@@ -368,6 +368,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - contracts/vesting: `cancel_schedule(env, schedule_id, recipient)` (#282). Cancels a vesting schedule that has not yet started (now < start_time), refunds total_amount to recipient, and sets status to Cancelled. Panics with ScheduleNotStarted if the schedule has already started. New ScheduleStatus::Cancelled variant and VestingError::ScheduleNotStarted = 11 added. Three new tests: test_cancel_schedule_success, test_cancel_schedule_already_started_panics, test_cancel_already_cancelled_panics.
 
+### Added — 2026-11-22
+
+- contracts/token/src/lib.rs: `test_allowance_of_unapproved_pair_returns_zero` (#233).
+  Asserts that `allowance()` returns exactly `0` for a fresh owner-spender pair
+  where `approve()` was never called, exercising the `.unwrap_or(0)` fallback
+  in `TokenContract::allowance`.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Error Codes" section (#283). Documents all
