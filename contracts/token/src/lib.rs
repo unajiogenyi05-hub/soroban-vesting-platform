@@ -366,7 +366,9 @@ impl TokenContract {
     /// - Current admin not initialized in storage
     ///
     /// # Events
-    /// Emits `(admXfer,)` → `(old_admin: Address, new_admin: Address)`
+    /// Intentionally emits `(admXfer,)` → `(old_admin: Address, new_admin: Address)`
+    /// so off-chain indexers can track admin hand-offs without polling `admin()`
+    /// on every block.  Exactly one event is emitted per call.
     pub fn transfer_admin(env: Env, new_admin: Address) {
         Self::bump_instance(&env);
         let old_admin: Address = env
@@ -967,6 +969,30 @@ mod tests {
         }]);
         token.mint(&recipient, &100);
         assert_eq!(token.balance(&recipient), 100);
+    }
+
+    /// transfer_admin() emits exactly one event — the `admXfer` topic — and
+    /// no other event.  A future change that accidentally adds or removes an
+    /// event emission would break this test.
+    ///
+    /// Note: earlier versions of this contract omitted the event entirely.
+    /// The `admXfer` event was added deliberately so off-chain indexers can
+    /// track admin hand-offs without polling `admin()` on every block.
+    #[test]
+    fn test_transfer_admin_emits_exactly_admxfer_event() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let new_admin = Address::generate(&env);
+
+        token.transfer_admin(&new_admin);
+
+        // Exactly one event must be emitted — the admXfer event.
+        // No extra events (e.g. from a future refactor) are allowed.
+        assert_eq!(
+            env.events().all().len(),
+            1,
+            "transfer_admin must emit exactly one event (admXfer)"
+        );
     }
 
     // ── Allowance edge cases ──────────────────────────────────────────────────
