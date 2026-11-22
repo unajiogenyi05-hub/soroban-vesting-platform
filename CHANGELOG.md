@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — 2026-11-05
+
+- contracts/vesting/src/lib.rs: removed the accidental duplicate definition
+  of `test_create_schedule_minimum_amount` introduced in #164, which made the
+  vesting test binary fail to compile (E0428: name defined multiple times).
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: two new tests for `get_claimable()` on
