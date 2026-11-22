@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    name: Build and publish WASM release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32v1-none
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-v2-
+
+      - name: Fmt check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all --target wasm32v1-none -- -D warnings
+
+      - name: Tests
+        run: cargo test --all --locked
+
+      - name: Install stellar-cli
+        uses: stellar/stellar-cli@v28.0.0
+
+      - name: Build WASM
+        run: stellar contract build
+
+      - name: Verify artifacts and write checksums
+        run: |
+          count=$(find target/wasm32v1-none/release -maxdepth 1 -name '*.wasm' | wc -l)
+          if [ "$count" -ne 3 ]; then
+            echo "Expected 3 WASM artifacts, found $count" >&2
+            exit 1
+          fi
+          (
+            cd target/wasm32v1-none/release
+            sha256sum ./*.wasm > sha256sums.txt
+            cat sha256sums.txt
+          )
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            target/wasm32v1-none/release/*.wasm
+            target/wasm32v1-none/release/sha256sums.txt
