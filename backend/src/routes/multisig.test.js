@@ -119,6 +119,14 @@ describe('Multisig routes', () => {
     });
   });
 
+  describe('GET /api/multisig/count', () => {
+    it('returns count', async () => {
+      const res = await request(app).get('/api/multisig/count');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty('count');
+    });
+  });
+
   describe('POST /api/multisig/revoke-confirm', () => {
     it('returns 202 with valid body', async () => {
       const res = await request(app)
