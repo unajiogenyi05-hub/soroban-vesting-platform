@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests — 2026-11-22
+
+- backend/src/routes/multisig.test.js: shape test for
+  `GET /api/multisig/count` (#238). The three multisig read endpoints
+  (`/owners`, `/threshold`, `/count`) return stub JSON; `/owners` and
+  `/threshold` already had tests, but `/count` was untested. Add a test
+  asserting HTTP 200 and `res.body.data.count`, so all three read
+  endpoints now lock in their response field names. A field rename that
+  breaks SDK consumers will fail the suite instead of going unnoticed.
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
