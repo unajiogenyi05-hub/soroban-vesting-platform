@@ -830,6 +830,18 @@ mod tests {
         let _ = stranger;
     }
 
+    // ── Allowance / balance zero-value tests ─────────────────────────────────
+
+    /// balance() must return 0 for an address that never held tokens.
+    /// This exercises the `.unwrap_or(0)` path in `TokenContract::balance_of`.
+    #[test]
+    fn test_balance_of_unknown_address_returns_zero() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let stranger = Address::generate(&env);
+        assert_eq!(token.balance(&stranger), 0);
+    }
+
     // ── Overflow guards ───────────────────────────────────────────────────────
 
     /// Minting i128::MAX into a non-zero balance overflows the per-account
