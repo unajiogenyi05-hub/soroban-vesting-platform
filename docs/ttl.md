@@ -110,3 +110,6 @@ stellar contract invoke \
   --network mainnet \
   -- extend_ttl
 ```
+
+For shell and Node.js examples and a full scheduling guide (cron and GitHub
+Actions) see [docs/offchain-keepalive.md](offchain-keepalive.md).

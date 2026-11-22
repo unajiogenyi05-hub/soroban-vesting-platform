@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — docs/250-offchain-keepalive
+
+- docs/offchain-keepalive.md (#250): guide for running a keep-alive bot that
+  calls `extend_ttl()` on all three contracts. Covers why keep-alive is needed
+  (TTL constants, archival risk for idle deployments), a shell script example
+  using `stellar contract invoke`, a Node.js example using
+  `@stellar/stellar-sdk` simulation, and scheduling options (cron job and
+  GitHub Actions monthly workflow). Includes security notes on using a
+  dedicated low-privilege key. Linked from docs/ttl.md and README "Storage TTL
+  constants" section.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Rounding behavior" section (#96). Documents

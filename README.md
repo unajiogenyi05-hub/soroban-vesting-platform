@@ -99,6 +99,8 @@ soroban-vesting-platform/
 │   └── demo-testnet.sh # End-to-end testnet lifecycle demo
 ├── docs/
 │   ├── architecture.md
+│   ├── disaster-recovery.md  # Restoring archived contract entries
+│   ├── offchain-keepalive.md # Cron / GitHub Actions keep-alive bot
 │   └── testnet-demo.md   # Manual walkthrough
 ├── .github/workflows/ci.yml
 ├── .env.example
@@ -375,6 +377,9 @@ Persistent entries (schedules, balances, proposals) are extended on every write.
 
 See [docs/ttl.md](docs/ttl.md) for full details on what expires, the restore
 procedure, and how to tune the constants for a production deployment.
+
+For automated keep-alive (shell script, Node.js, cron, and GitHub Actions
+workflow) see [docs/offchain-keepalive.md](docs/offchain-keepalive.md).
 
 ---
 
