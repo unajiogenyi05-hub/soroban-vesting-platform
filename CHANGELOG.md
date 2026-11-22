@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — ci/259-cargo-deny
+
+- deny.toml (#259): cargo-deny configuration at the workspace root. Allows
+  MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception, Unicode-DFS-2016, ISC,
+  BSD-2-Clause, BSD-3-Clause, 0BSD, and CC0-1.0 licenses (all licenses
+  present in the Stellar/Soroban dependency tree). Denies unlicensed and
+  copyleft crates. Warns on duplicate crate versions. Restricts sources to
+  crates.io only.
+
+- .github/workflows/ci.yml (#259): two new steps in the contracts job —
+  "Install cargo-deny" (cargo install cargo-deny --locked) and "Dependency
+  check (licenses + advisories)" (cargo deny check). The check runs after
+  the WASM build and fails the job on license violations or unpatched
+  security advisories.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Rounding behavior" section (#96). Documents

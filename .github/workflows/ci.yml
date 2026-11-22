@@ -49,6 +49,12 @@ jobs:
       - name: Build WASM
         run: stellar contract build
 
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
+      - name: Dependency check (licenses + advisories)
+        run: cargo deny check
+
       - name: Upload WASM artifacts
         uses: actions/upload-artifact@v4
         with:
