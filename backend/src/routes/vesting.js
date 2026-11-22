@@ -111,6 +111,9 @@ router.post('/schedule', contractIdMiddleware, async (req, res, next) => {
     if (Number(totalAmount) <= 0) {
       return res.status(400).json({ error: 'totalAmount must be positive' });
     }
+    if (!totalDuration || Number(totalDuration) <= 0) {
+      return res.status(400).json({ error: 'totalDuration must be positive' });
+    }
     if (Number(cliffDuration) > Number(totalDuration)) {
       return res.status(400).json({ error: 'cliffDuration cannot exceed totalDuration' });
     }

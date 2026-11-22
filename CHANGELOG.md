@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed — 2026-11-22
+
+- backend/src/routes/vesting.js: reject a non-positive `totalDuration`
+  early on `POST /api/vesting/schedule` (#234). The route validated
+  `totalAmount > 0` and `cliffDuration <= totalDuration` but not that
+  `totalDuration` itself is positive, so a zero or missing duration reached
+  the contract and panicked with `DurationMustBePositive`. The route now
+  returns HTTP 400 with `{ error: 'totalDuration must be positive' }`,
+  mirroring the contract's validation order (amount, then duration, then
+  cliff). New tests in `backend/src/routes/vesting.test.js` cover
+  `totalDuration: 0` and a missing `totalDuration`.
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
