@@ -1,0 +1,1181 @@
+openapi: "3.0.3"
+info:
+  title: "Soroban Vesting Platform API"
+  version: "1.0.0"
+  description: >
+    REST API for the Soroban Vesting Platform. The backend wraps three Soroban
+    smart contracts (Token, Vesting, Multisig) deployed on Stellar Testnet.
+    Mutating endpoints return 202 with a transaction envelope ready for signing;
+    read endpoints return live on-chain data when contract IDs are configured,
+    or documented stubs otherwise.
+  license:
+    name: MIT
+
+servers:
+  - url: "http://localhost:3001"
+    description: "Local development"
+
+# ── Reusable component schemas ─────────────────────────────────────────────
+components:
+  schemas:
+
+    ErrorResponse:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          example: "Missing required fields"
+        code:
+          type: string
+          example: "REQUEST_ERROR"
+
+    SuccessResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Transaction ready for signing."
+        data:
+          type: object
+          additionalProperties: true
+
+    AcceptedResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Transaction queued."
+        data:
+          type: object
+          additionalProperties: true
+
+    TokenInfoResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required: [contractId, name, symbol, decimals, totalSupply, note]
+          properties:
+            contractId:
+              type: string
+              example: "CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH"
+            name:
+              type: string
+              example: "My Token"
+            symbol:
+              type: string
+              example: "MTK"
+            decimals:
+              type: integer
+              example: 7
+            totalSupply:
+              type: integer
+              format: int64
+              example: 0
+            note:
+              type: string
+              example: "Connect TOKEN_CONTRACT_ID to read live data."
+
+    VestingScheduleStub:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required: [id, contractId, note]
+          properties:
+            id:
+              type: integer
+              format: int64
+              example: 1
+            contractId:
+              type: string
+              example: "CDBSJEAWCMVWQQDVPY6I7Y4TAHWXFLGE2MEYG2UIOC2A6SQMJ5V3NMJF"
+            note:
+              type: string
+              example: "Connect VESTING_CONTRACT_ID and SOURCE_SECRET_KEY to read live data."
+
+    ProposalStub:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required: [id, contractId, note]
+          properties:
+            id:
+              type: integer
+              format: int64
+              example: 1
+            contractId:
+              type: string
+              example: ""
+            note:
+              type: string
+              example: "Connect MULTISIG_CONTRACT_ID to read live data."
+
+# ── Paths ──────────────────────────────────────────────────────────────────
+paths:
+
+  # ── Health ────────────────────────────────────────────────────────────────
+
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Liveness check
+      description: >
+        Returns the server status, current timestamp, Stellar network name, and
+        the configured Soroban RPC URL.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Server is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, timestamp, network, rpc]
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-10-16T12:00:00.000Z"
+                  network:
+                    type: string
+                    example: "testnet"
+                  rpc:
+                    type: string
+                    example: "https://soroban-testnet.stellar.org"
+
+  /api/health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness check
+      description: >
+        Returns whether at least one contract ID is configured. Returns 200 when
+        ready, 503 when no contract IDs are set.
+      operationId: getHealthReady
+      responses:
+        "200":
+          description: At least one contract is configured.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ready, contracts]
+                properties:
+                  ready:
+                    type: boolean
+                    example: true
+                  contracts:
+                    type: object
+                    required: [vesting, token, multisig]
+                    properties:
+                      vesting:
+                        type: boolean
+                        example: true
+                      token:
+                        type: boolean
+                        example: true
+                      multisig:
+                        type: boolean
+                        example: false
+        "503":
+          description: No contract IDs are configured.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ready, contracts]
+                properties:
+                  ready:
+                    type: boolean
+                    example: false
+                  contracts:
+                    type: object
+                    required: [vesting, token, multisig]
+                    properties:
+                      vesting:
+                        type: boolean
+                        example: false
+                      token:
+                        type: boolean
+                        example: false
+                      multisig:
+                        type: boolean
+                        example: false
+
+  # ── Vesting ───────────────────────────────────────────────────────────────
+
+  /api/vesting/schedule:
+    post:
+      tags: [Vesting]
+      summary: Create a vesting schedule
+      description: >
+        Builds and returns an unsigned Soroban transaction for `create_schedule`.
+        The caller must sign and submit it to the network.
+      operationId: postVestingSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, beneficiary, tokenAddress, totalAmount, totalDuration]
+              properties:
+                contractId:
+                  type: string
+                  description: Override the server-configured vesting contract ID.
+                from:
+                  type: string
+                  example: "GABC..."
+                beneficiary:
+                  type: string
+                  example: "GDEF..."
+                tokenAddress:
+                  type: string
+                  example: "CBFVQMSOIMRWLZGKY4MMBASEJLKBLGBIYWT76MH47M5B2ODRDT264KKH"
+                totalAmount:
+                  type: number
+                  example: 1000000
+                startTime:
+                  type: integer
+                  format: int64
+                  description: Unix timestamp for schedule start. Defaults to now.
+                cliffDuration:
+                  type: integer
+                  format: int64
+                  description: Cliff period in seconds. Defaults to 0.
+                totalDuration:
+                  type: integer
+                  format: int64
+                  example: 126144000
+      responses:
+        "202":
+          description: Schedule creation queued; sign and submit the returned transaction.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/vesting/schedule/{id}:
+    get:
+      tags: [Vesting]
+      summary: Get schedule by ID
+      description: Returns on-chain schedule data for the given schedule ID.
+      operationId: getVestingSchedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schedule data (or stub when contract ID is not set).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VestingScheduleStub"
+
+  /api/vesting/claimable/{id}:
+    get:
+      tags: [Vesting]
+      summary: Get claimable amount for a schedule
+      description: Simulates `get_claimable` for the given schedule ID.
+      operationId: getVestingClaimable
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Claimable amount (or 0 stub when contract is not configured).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [scheduleId, claimableAmount, note]
+                    properties:
+                      scheduleId:
+                        type: integer
+                        format: int64
+                        example: 1
+                      claimableAmount:
+                        type: integer
+                        format: int64
+                        example: 0
+                      note:
+                        type: string
+                        example: "Set VESTING_CONTRACT_ID to query live contract."
+
+  /api/vesting/claim:
+    post:
+      tags: [Vesting]
+      summary: Claim vested tokens
+      description: >
+        Builds and returns an unsigned transaction for `claim`. The beneficiary
+        must sign and submit it.
+      operationId: postVestingClaim
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduleId, beneficiary]
+              properties:
+                contractId:
+                  type: string
+                scheduleId:
+                  type: string
+                  example: "1"
+                beneficiary:
+                  type: string
+                  example: "GDEF..."
+      responses:
+        "202":
+          description: Claim transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/vesting/revoke:
+    post:
+      tags: [Vesting]
+      summary: Revoke a vesting schedule (admin)
+      description: >
+        Builds and returns an unsigned transaction for `revoke`. Unvested tokens
+        are returned to `recipient`. Must be signed by the vesting admin.
+      operationId: postVestingRevoke
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scheduleId, recipient]
+              properties:
+                contractId:
+                  type: string
+                scheduleId:
+                  type: string
+                  example: "1"
+                recipient:
+                  type: string
+                  example: "GABC..."
+      responses:
+        "202":
+          description: Revoke transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/vesting/pause:
+    post:
+      tags: [Vesting]
+      summary: Pause vesting contract (admin)
+      operationId: postVestingPause
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contractId:
+                  type: string
+      responses:
+        "202":
+          description: Pause transaction ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+
+  /api/vesting/unpause:
+    post:
+      tags: [Vesting]
+      summary: Unpause vesting contract (admin)
+      operationId: postVestingUnpause
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contractId:
+                  type: string
+      responses:
+        "202":
+          description: Unpause transaction ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+
+  /api/vesting/beneficiary/{addr}:
+    get:
+      tags: [Vesting]
+      summary: List schedules for a beneficiary
+      description: Returns all schedule IDs associated with the given Stellar address.
+      operationId: getVestingBeneficiary
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "GDEF..."
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Beneficiary schedule list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [beneficiary, scheduleIds, contractId]
+                    properties:
+                      beneficiary:
+                        type: string
+                        example: "GDEF..."
+                      scheduleIds:
+                        type: array
+                        items:
+                          type: integer
+                          format: int64
+                        example: []
+                      contractId:
+                        type: string
+                        example: ""
+
+  /api/vesting/count:
+    get:
+      tags: [Vesting]
+      summary: Total schedule count
+      description: Returns the total number of vesting schedules created on this contract.
+      operationId: getVestingCount
+      parameters:
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schedule count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [count, contractId]
+                    properties:
+                      count:
+                        type: integer
+                        example: 0
+                      contractId:
+                        type: string
+                        example: ""
+
+  # ── Token ─────────────────────────────────────────────────────────────────
+
+  /api/token/info:
+    get:
+      tags: [Token]
+      summary: Token metadata
+      description: Returns name, symbol, decimals, and total supply of the configured token contract.
+      operationId: getTokenInfo
+      responses:
+        "200":
+          description: Token info (or stub when contract is not configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenInfoResponse"
+
+  /api/token/balance/{addr}:
+    get:
+      tags: [Token]
+      summary: Token balance for an address
+      operationId: getTokenBalance
+      parameters:
+        - name: addr
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "GABC..."
+      responses:
+        "200":
+          description: Balance result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [address, balance, contractId]
+                    properties:
+                      address:
+                        type: string
+                        example: "GABC..."
+                      balance:
+                        type: integer
+                        format: int64
+                        example: 0
+                      contractId:
+                        type: string
+                        example: ""
+
+  /api/token/allowance:
+    get:
+      tags: [Token]
+      summary: Spending allowance
+      description: Returns the allowance granted by `owner` to `spender`.
+      operationId: getTokenAllowance
+      parameters:
+        - name: owner
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "GABC..."
+        - name: spender
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "GDEF..."
+      responses:
+        "200":
+          description: Allowance result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [owner, spender, allowance, contractId]
+                    properties:
+                      owner:
+                        type: string
+                        example: "GABC..."
+                      spender:
+                        type: string
+                        example: "GDEF..."
+                      allowance:
+                        type: integer
+                        format: int64
+                        example: 0
+                      contractId:
+                        type: string
+                        example: ""
+        "400":
+          description: Missing required query parameters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/token/mint:
+    post:
+      tags: [Token]
+      summary: Mint tokens (admin)
+      operationId: postTokenMint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, amount]
+              properties:
+                contractId:
+                  type: string
+                to:
+                  type: string
+                  example: "GABC..."
+                amount:
+                  type: number
+                  example: 1000000
+      responses:
+        "202":
+          description: Mint transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/token/burn:
+    post:
+      tags: [Token]
+      summary: Burn tokens
+      operationId: postTokenBurn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, amount]
+              properties:
+                contractId:
+                  type: string
+                from:
+                  type: string
+                  example: "GABC..."
+                amount:
+                  type: number
+                  example: 500000
+      responses:
+        "202":
+          description: Burn transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/token/transfer:
+    post:
+      tags: [Token]
+      summary: Transfer tokens
+      operationId: postTokenTransfer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to, amount]
+              properties:
+                contractId:
+                  type: string
+                from:
+                  type: string
+                  example: "GABC..."
+                to:
+                  type: string
+                  example: "GDEF..."
+                amount:
+                  type: number
+                  example: 100000
+      responses:
+        "202":
+          description: Transfer transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/token/approve:
+    post:
+      tags: [Token]
+      summary: Approve spending allowance
+      operationId: postTokenApprove
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner, spender, amount]
+              properties:
+                contractId:
+                  type: string
+                owner:
+                  type: string
+                  example: "GABC..."
+                spender:
+                  type: string
+                  example: "GDEF..."
+                amount:
+                  type: number
+                  example: 100000
+      responses:
+        "202":
+          description: Approve transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/token/pause:
+    post:
+      tags: [Token]
+      summary: Pause token contract (admin)
+      operationId: postTokenPause
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contractId:
+                  type: string
+      responses:
+        "202":
+          description: Pause transaction ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+
+  /api/token/unpause:
+    post:
+      tags: [Token]
+      summary: Unpause token contract (admin)
+      operationId: postTokenUnpause
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contractId:
+                  type: string
+      responses:
+        "202":
+          description: Unpause transaction ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+
+  # ── Multisig ──────────────────────────────────────────────────────────────
+
+  /api/multisig/proposal:
+    post:
+      tags: [Multisig]
+      summary: Submit a multisig proposal
+      description: >
+        Builds and returns an unsigned transaction for `submit`. The proposer
+        must be an owner of the multisig contract.
+      operationId: postMultisigProposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proposer, description]
+              properties:
+                contractId:
+                  type: string
+                proposer:
+                  type: string
+                  example: "GABC..."
+                description:
+                  type: string
+                  example: "Pause vesting contract for security review"
+      responses:
+        "202":
+          description: Proposal submission transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/multisig/proposal/{id}:
+    get:
+      tags: [Multisig]
+      summary: Get proposal by ID
+      operationId: getMultisigProposal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 1
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Proposal data (or stub when contract is not configured).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProposalStub"
+
+  /api/multisig/confirm:
+    post:
+      tags: [Multisig]
+      summary: Confirm a proposal
+      operationId: postMultisigConfirm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner, proposalId]
+              properties:
+                contractId:
+                  type: string
+                owner:
+                  type: string
+                  example: "GABC..."
+                proposalId:
+                  type: string
+                  example: "1"
+      responses:
+        "202":
+          description: Confirm transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/multisig/revoke-confirm:
+    post:
+      tags: [Multisig]
+      summary: Revoke a confirmation
+      operationId: postMultisigRevokeConfirm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner, proposalId]
+              properties:
+                contractId:
+                  type: string
+                owner:
+                  type: string
+                  example: "GABC..."
+                proposalId:
+                  type: string
+                  example: "1"
+      responses:
+        "202":
+          description: Revoke-confirmation transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/multisig/execute:
+    post:
+      tags: [Multisig]
+      summary: Execute a confirmed proposal
+      description: >
+        Permissionless once the confirmation threshold is met. Dispatches the
+        `ProposalAction` (cross-contract call or owner-set change).
+      operationId: postMultisigExecute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [proposalId]
+              properties:
+                contractId:
+                  type: string
+                proposalId:
+                  type: string
+                  example: "1"
+      responses:
+        "202":
+          description: Execute transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/multisig/cancel:
+    post:
+      tags: [Multisig]
+      summary: Cancel a pending proposal
+      description: Can only be called by the proposer of the given proposal.
+      operationId: postMultisigCancel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [caller, proposalId]
+              properties:
+                contractId:
+                  type: string
+                caller:
+                  type: string
+                  example: "GABC..."
+                proposalId:
+                  type: string
+                  example: "1"
+      responses:
+        "202":
+          description: Cancel transaction ready for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+        "400":
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /api/multisig/owners:
+    get:
+      tags: [Multisig]
+      summary: Get current owner list
+      operationId: getMultisigOwners
+      parameters:
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Owner list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [owners, contractId]
+                    properties:
+                      owners:
+                        type: array
+                        items:
+                          type: string
+                        example: []
+                      contractId:
+                        type: string
+                        example: ""
+
+  /api/multisig/threshold:
+    get:
+      tags: [Multisig]
+      summary: Get confirmation threshold
+      operationId: getMultisigThreshold
+      parameters:
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Threshold value.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [threshold, contractId]
+                    properties:
+                      threshold:
+                        type: integer
+                        example: 2
+                      contractId:
+                        type: string
+                        example: ""
+
+  /api/multisig/count:
+    get:
+      tags: [Multisig]
+      summary: Total proposal count
+      operationId: getMultisigCount
+      parameters:
+        - name: contractId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Proposal count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    required: [count, contractId]
+                    properties:
+                      count:
+                        type: integer
+                        example: 0
+                      contractId:
+                        type: string
+                        example: ""
+
+# ── Tags ───────────────────────────────────────────────────────────────────
+tags:
+  - name: Health
+    description: Liveness and readiness probes.
+  - name: Vesting
+    description: >
+      Linear token vesting with cliff, claim, revoke, and pause operations.
+      Maps to `contracts/vesting`.
+  - name: Token
+    description: >
+      SEP-0041 fungible token operations (mint, burn, transfer, approve).
+      Maps to `contracts/token`.
+  - name: Multisig
+    description: >
+      N-of-M governance proposals (submit, confirm, execute, cancel).
+      Maps to `contracts/multisig`.
+
+
