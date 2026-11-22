@@ -64,6 +64,15 @@ describe('Token routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('symbol');
     });
+
+    it('returns token info stub shape with name, symbol, decimals, and totalSupply', async () => {
+      const res = await request(app).get('/api/token/info');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty('name');
+      expect(res.body.data).toHaveProperty('symbol');
+      expect(res.body.data).toHaveProperty('decimals');
+      expect(res.body.data).toHaveProperty('totalSupply');
+    });
   });
 
   // ── balance — stub fallback ─────────────────────────────────────────────────

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests — 2026-11-22
+
+- backend/src/routes/token.test.js: shape test for `GET /api/token/info`
+  (#240). Asserts the response `data` object exposes `name`, `symbol`,
+  `decimals`, and `totalSupply`, so a refactor that renames a field breaks
+  the test instead of silently breaking SDK consumers. Complements the
+  existing test that only checked for `symbol`.
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
