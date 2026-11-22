@@ -1070,6 +1070,76 @@ mod tests {
         );
     }
 
+    // ── revoke exactly at full vest: unvested == 0, all to beneficiary ────────
+
+    /// When revoke() is called exactly when the schedule is fully vested
+    /// (now >= start_time + total_duration), `vested_amount()` equals
+    /// `total_amount`, so unvested == 0 and the entire amount — still held by
+    /// the contract as unclaimed vested tokens — is paid to the beneficiary.
+    ///
+    /// Schedule: total_duration=100, total_amount=100_000, no cliff.
+    /// Revoke at t = start + 100 (exactly fully vested, nothing claimed yet).
+    ///
+    /// Expected:
+    ///   - return value == 0 (unvested)
+    ///   - beneficiary balance == 100_000
+    ///   - recipient (treasury) balance == 0
+    ///   - contract balance == 0
+    ///   - schedule.status == ScheduleStatus::Revoked
+    #[test]
+    fn test_revoke_after_full_vest_sends_all_to_beneficiary() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env); // treasury / unvested-token recipient
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance to exactly start + 100 — fully vested, nothing claimed yet.
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+
+        // Everything is vested and unclaimed; nothing is unvested.
+        assert_eq!(vesting.get_claimable(&id), 100_000);
+        assert_eq!(vesting.get_unvested_amount(&id), 0);
+
+        let returned = vesting.revoke(&id, &recipient);
+
+        // Unvested portion returned to the caller is zero.
+        assert_eq!(returned, 0, "unvested must be 0 at full vest");
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+
+        // Beneficiary received the entire amount (unclaimed vested tokens).
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            100_000,
+            "beneficiary should receive the full total_amount at full vest"
+        );
+
+        // Recipient (treasury) received nothing — there was nothing unvested.
+        assert_eq!(
+            token_client.balance(&recipient),
+            0,
+            "recipient should receive 0 tokens at full vest"
+        );
+
+        // The contract holds no residual tokens.
+        assert_eq!(token_client.balance(&vesting_id), 0);
+
+        // Schedule is marked Revoked, not Completed.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
+    }
+
     // ── claim after revoke must error with ScheduleNotActive ─────────────────
 
     #[test]
