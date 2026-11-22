@@ -322,6 +322,28 @@ Complete steps 1–4 of the manual walkthrough above so you have `TOKEN_ID`,
 
 ### Step 1 — Deploy the multisig contract
 
+The quickest way is to use the dedicated deploy script:
+
+```bash
+chmod +x scripts/deploy-multisig.sh
+
+# Single-owner, threshold 1 (demo)
+ADMIN=$(stellar keys address my-admin)
+OWNERS="[\"$ADMIN\"]" THRESHOLD=1 SOURCE_ACCOUNT=my-admin ./scripts/deploy-multisig.sh
+
+export MULTISIG_ID=$(cat deployments.json | jq -r '.multisig_testnet')
+echo "Multisig: $MULTISIG_ID"
+```
+
+For a 2-of-3 production setup pass three addresses and `--threshold 2`:
+
+```bash
+OWNERS='["GAAA...","GBBB...","GCCC..."]' THRESHOLD=2 \
+  SOURCE_ACCOUNT=my-admin ./scripts/deploy-multisig.sh
+```
+
+Alternatively, run the `stellar contract deploy` command directly:
+
 ```bash
 export MULTISIG_ID=$(stellar contract deploy \
   --wasm target/wasm32v1-none/release/multisig.wasm \
@@ -336,6 +358,10 @@ echo "Multisig: $MULTISIG_ID"
 The `--owners` arg is a JSON array of Stellar account addresses. Threshold 1
 means any single owner can confirm and execute a proposal. For a 2-of-3
 setup, pass three addresses and `--threshold 2`.
+
+See [`scripts/deploy-multisig.sh`](../scripts/deploy-multisig.sh) for the full
+list of configurable environment variables (`OWNERS`, `THRESHOLD`,
+`SOURCE_ACCOUNT`, `NETWORK`, `SKIP_BUILD`).
 
 ### Step 2 — Transfer vesting admin to the multisig
 

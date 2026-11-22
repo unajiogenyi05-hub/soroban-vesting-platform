@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- scripts/deploy-multisig.sh: standalone script to deploy the multisig
+  contract to any Stellar network with configurable `OWNERS` (JSON array),
+  `THRESHOLD`, `SOURCE_ACCOUNT`, `NETWORK`, and `SKIP_BUILD` environment
+  variables (#264). Saves the deployed contract ID to `deployments.json`
+  when `jq` is available and prints next-step commands for transferring the
+  vesting admin role. Linked from docs/testnet-demo.md "Multisig governance
+  demo" step 1.
 ### Tests
 - contracts/vesting/src/lib.rs: `test_transfer_admin_old_admin_loses_create_schedule` —
   verifies that after `transfer_admin()`, the old admin's auth no longer satisfies
