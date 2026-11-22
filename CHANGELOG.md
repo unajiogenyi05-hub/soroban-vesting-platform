@@ -375,6 +375,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where `approve()` was never called, exercising the `.unwrap_or(0)` fallback
   in `TokenContract::allowance`.
 
+### Added — 2026-11-22
+
+- backend/src/routes/multisig.test.js: three test cases for `POST /api/multisig/proposal` (#237).
+  Covers the happy path (202 with valid body), missing `proposer` (400), and
+  missing `description` (400), exercising the validation guard in
+  `multisig.js` that returns 400 when either field is absent.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Error Codes" section (#283). Documents all
