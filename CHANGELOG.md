@@ -286,6 +286,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 400 with an `error` body when `owner` is missing
   - 400 with an `error` body when `spender` is missing
 
+### Tests — 2026-11-05
+
+- backend/src/app.test.js: new test verifying that unknown routes
+  return a 404 with a JSON error body (#235). The catch-all handler
+  in src/index.js responds with { error: 'Not found' }; the test
+  asserts both the 404 status and that res.body.error is defined,
+  across GET /api, GET non-/api, and POST cases.
+
 ### Tests — 2026-10-16
 
 - contracts/vesting/src/lib.rs: `test_create_schedule_future_start_time` (#63).
