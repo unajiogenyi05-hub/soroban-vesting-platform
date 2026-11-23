@@ -48,6 +48,20 @@ jobs:
       - name: Tests
         run: cargo test --all --locked
 
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Coverage (contracts)
+        run: cargo tarpaulin --all --engine llvm --out Xml --output-dir coverage/
+        continue-on-error: true
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-coverage
+          path: coverage/
+          retention-days: 14
+
       - name: Security audit
         uses: rustsec/audit-check@v2.0.0
         with:
