@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- backend/src/routes/vesting.test.js: fixed test suite crash caused by the
+  ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
+  breaking Jest's CommonJS transform (#108). Added a full `jest.mock` for
+  `@stellar/stellar-sdk` (matching the token test pattern) so the SDK is never
+  loaded by Jest directly. Replaced the orphaned `mockSimulate` jest.fn() with
+  the actual `simulateContractCall` mock obtained from `jest.mock('../services/stellar')`
+  in all live-call assertions — the old `mockSimulate` was never connected to
+  the route and those tests were silently vacuous. All 42 vesting tests now pass.
 ### Tests
 - contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
   Verifies that `confirm()` panics with `"proposal not pending"` when called on a

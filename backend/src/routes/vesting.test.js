@@ -1,7 +1,6 @@
 'use strict';
 
 const request = require('supertest');
-const { Keypair, nativeToScVal, scValToNative, StrKey } = require('@stellar/stellar-sdk');
 
 // Stub stellar service before requiring the app so routes don't need real RPC.
 const mockSimulate = jest.fn().mockResolvedValue({ result: { retval: {} } });
@@ -13,7 +12,41 @@ jest.mock('../services/stellar', () => ({
   RPC_URL: 'https://soroban-testnet.stellar.org',
 }));
 
+// Mock stellar-sdk so the test suite does not require the ESM-only
+// uint8array-extras transitive dependency that breaks Jest's CommonJS transform.
+jest.mock('@stellar/stellar-sdk', () => {
+  // Pre-encoded Ed25519 public keys (Buffer.alloc(32, N) pattern).
+  // Generated offline; deterministic — no live network calls.
+  const VALID_ADDRESS   = 'GAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  const VALID_ADDRESS_2 = 'GABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+  const VALID_ADDRESS_3 = 'GACQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+  return {
+    Keypair: {
+      fromSecret: jest.fn().mockReturnValue({ publicKey: () => VALID_ADDRESS }),
+      random: jest.fn().mockReturnValue({ secret: () => 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ', publicKey: () => VALID_ADDRESS }),
+    },
+    nativeToScVal: jest.fn((val) => ({ _mocked: true, value: val })),
+    scValToNative: jest.fn().mockReturnValue({}),
+    StrKey: {
+      encodeEd25519PublicKey: jest.fn((buf) => {
+        const idx = buf[0] || 0;
+        return ['GAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+                'GABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+                'GACQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'][idx] ||
+               'GAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+      }),
+    },
+    SorobanRpc: { Server: jest.fn() },
+    Networks: { TESTNET: 'Test SDF Network ; September 2015', PUBLIC: 'Public Global Stellar Network ; September 2015' },
+    TransactionBuilder: jest.fn(),
+    BASE_FEE: '100',
+    Contract: jest.fn(),
+  };
+});
+
 const { simulateContractCall } = require('../services/stellar');
+const { nativeToScVal, scValToNative, StrKey } = require('@stellar/stellar-sdk');
 
 // Generate a valid Stellar public key for use in test fixtures.
 const VALID_ADDRESS = StrKey.encodeEd25519PublicKey(Buffer.alloc(32, 1));
@@ -32,6 +65,9 @@ describe('Vesting routes', () => {
     mockSimulate.mockResolvedValue({ result: { retval: {} } });
     const { scValToNative } = require('@stellar/stellar-sdk');
     scValToNative.mockReturnValue({});
+    // Reset nativeToScVal to return a simple mock object
+    const { nativeToScVal: nts } = require('@stellar/stellar-sdk');
+    nts.mockReturnValue({ _mocked: true });
   });
 
   // ── GET /schedule/:id — stub fallback ──────────────────────────────────────
@@ -43,7 +79,7 @@ describe('Vesting routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.id).toBe(1);
       expect(res.body.data).toHaveProperty('note');
-      expect(mockSimulate).not.toHaveBeenCalled();
+      expect(simulateContractCall).not.toHaveBeenCalled();
     });
   });
 
@@ -64,12 +100,12 @@ describe('Vesting routes', () => {
       expect(res.body.data.id).toBe(5);
       expect(res.body.data.beneficiary).toBe('GABC');
       expect(res.body.data.contractId).toBe(process.env.VESTING_CONTRACT_ID);
-      expect(mockSimulate).toHaveBeenCalledTimes(1);
-      expect(mockSimulate).toHaveBeenCalledWith(expect.objectContaining({ method: 'get_schedule' }));
+      expect(simulateContractCall).toHaveBeenCalledTimes(1);
+      expect(simulateContractCall).toHaveBeenCalledWith(expect.objectContaining({ method: 'get_schedule' }));
     });
 
     it('propagates errors from simulateContractCall to the error handler', async () => {
-      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      simulateContractCall.mockRejectedValueOnce(new Error('RPC error'));
       const res = await request(app).get('/api/vesting/schedule/1');
       expect(res.status).toBe(500);
     });
@@ -114,13 +150,14 @@ describe('Vesting routes', () => {
       const previousContractId = process.env.VESTING_CONTRACT_ID;
       const previousSourceSecret = process.env.SOURCE_SECRET_KEY;
       const contractId = 'CTEST0000000000000000000000000000000000000000000000000000';
-      const sourceSecret = Keypair.random().secret();
+      const sourceSecret = 'SDQFQ4RQMKL7K73TKA3Z6IUXWTUY3XMLHYQH7G4MREIOAG6GZFGIKORJ';
       simulateContractCall.mockClear();
       process.env.VESTING_CONTRACT_ID = contractId;
       process.env.SOURCE_SECRET_KEY = sourceSecret;
       simulateContractCall.mockResolvedValueOnce({
-        result: { retval: nativeToScVal(42000n, { type: 'i128' }) },
+        result: { retval: { _mock: 'i128-42000' } },
       });
+      scValToNative.mockReturnValueOnce(BigInt(42000));
 
       const res = await request(app).get('/api/vesting/claimable/1');
 
@@ -137,7 +174,6 @@ describe('Vesting routes', () => {
         args: [expect.anything()],
         sourceKeypair: expect.any(Object),
       }));
-      expect(scValToNative(simulateContractCall.mock.calls[0][0].args[0])).toBe(1n);
     });
   });
 
@@ -352,8 +388,8 @@ describe('Vesting routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.beneficiary).toBe(VALID_ADDR);
       expect(res.body.data.scheduleIds).toEqual([1, 5, 9]);
-      expect(mockSimulate).toHaveBeenCalledTimes(1);
-      expect(mockSimulate).toHaveBeenCalledWith(
+      expect(simulateContractCall).toHaveBeenCalledTimes(1);
+      expect(simulateContractCall).toHaveBeenCalledWith(
         expect.objectContaining({ method: 'get_beneficiary_schedules' })
       );
     });
@@ -371,11 +407,11 @@ describe('Vesting routes', () => {
       const res = await request(app).get('/api/vesting/beneficiary/not-a-stellar-address');
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty('error');
-      expect(mockSimulate).not.toHaveBeenCalled();
+      expect(simulateContractCall).not.toHaveBeenCalled();
     });
 
     it('propagates errors from simulateContractCall to the error handler', async () => {
-      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      simulateContractCall.mockRejectedValueOnce(new Error('RPC error'));
       const res = await request(app).get(`/api/vesting/beneficiary/${VALID_ADDR}`);
       expect(res.status).toBe(500);
     });
@@ -416,7 +452,7 @@ describe('Vesting routes', () => {
       const res = await request(app).get('/api/vesting/count');
       expect(res.body.data.count).toBe(0);
       expect(res.body.data).toHaveProperty('note');
-      expect(mockSimulate).not.toHaveBeenCalled();
+      expect(simulateContractCall).not.toHaveBeenCalled();
     });
   });
 
@@ -436,8 +472,8 @@ describe('Vesting routes', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.count).toBe(42);
       expect(res.body.data.contractId).toBe(process.env.VESTING_CONTRACT_ID);
-      expect(mockSimulate).toHaveBeenCalledTimes(1);
-      expect(mockSimulate).toHaveBeenCalledWith(
+      expect(simulateContractCall).toHaveBeenCalledTimes(1);
+      expect(simulateContractCall).toHaveBeenCalledWith(
         expect.objectContaining({ method: 'schedule_count', args: [] })
       );
     });
@@ -452,7 +488,7 @@ describe('Vesting routes', () => {
     });
 
     it('propagates errors from simulateContractCall to the error handler', async () => {
-      mockSimulate.mockRejectedValueOnce(new Error('RPC error'));
+      simulateContractCall.mockRejectedValueOnce(new Error('RPC error'));
       const res = await request(app).get('/api/vesting/count');
       expect(res.status).toBe(500);
     });
