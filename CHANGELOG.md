@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests — 2026-10-20
+
+- contracts/vesting/src/lib.rs: `test_revoke_succeeds_while_paused` (#225).
+  Verifies that `revoke()` is not pause-gated, as documented in the README
+  "Pause semantics" section. Creates a 100 000-token schedule with no cliff,
+  advances to 50 % vested, calls `pause()`, asserts `is_paused() == true`,
+  then calls `revoke()` and asserts the return value is 50 000 (unvested
+  amount), `schedule.status == Revoked`, and the contract remains paused
+  after the call. Also asserts token balances: beneficiary receives 50 000
+  (vested-but-unclaimed), admin/treasury receives 50 000 (unvested). A future
+  refactor that mistakenly adds `require_not_paused` to `revoke()` will now
+  be caught by this test.
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
