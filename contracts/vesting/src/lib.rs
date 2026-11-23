@@ -1740,6 +1740,75 @@ mod tests {
         vesting.claim(&id); // must panic with VestingError::ContractIsPaused
     }
 
+    // ── revoke() succeeds while paused (pause does not gate revoke) ──────────
+
+    /// revoke() is intentionally not pause-gated: the admin must be able to
+    /// recover unvested funds even when the contract is paused (documented in
+    /// the README "Pause semantics" section).
+    ///
+    /// This test verifies that a future refactor adding `require_not_paused`
+    /// to `revoke()` would be caught immediately.
+    ///
+    /// Setup: 100 000-token schedule, no cliff, 100-second duration.
+    /// Advance to t = start + 50 (50 % vested), then pause the contract.
+    /// Call revoke() and assert:
+    ///   - return value == 50 000 (unvested amount)
+    ///   - schedule.status == Revoked
+    ///   - is_paused() is still true (pause state unchanged)
+    #[test]
+    fn test_revoke_succeeds_while_paused() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance to 50 % vested, then pause.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.pause();
+        assert!(vesting.is_paused(), "contract must be paused before revoke");
+
+        // revoke() must succeed even though the contract is paused.
+        let unvested = vesting.revoke(&id, &admin);
+        assert_eq!(unvested, 50_000, "unvested amount must be 50_000");
+
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(
+            sched.status,
+            ScheduleStatus::Revoked,
+            "schedule status must be Revoked after revoke()"
+        );
+
+        // The pause state must be unaffected by revoke().
+        assert!(
+            vesting.is_paused(),
+            "contract must remain paused after revoke()"
+        );
+
+        // Token balances: beneficiary receives 50 000 (vested-but-unclaimed),
+        // admin/treasury receives 50 000 (unvested).
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            50_000,
+            "beneficiary must receive vested-but-unclaimed tokens"
+        );
+        assert_eq!(
+            token_client.balance(&admin),
+            50_000,
+            "admin must receive the unvested tokens"
+        );
+    }
+
     // ── unpause restores functionality ───────────────────────────────────────
 
     #[test]
