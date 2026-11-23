@@ -95,7 +95,7 @@ Authorization: admin.
 - `VestingError::ScheduleNotFound` (6) — schedule ID does not exist
 - `VestingError::ScheduleNotActive` (7) — schedule is already Revoked or Completed
 
-**Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)`
+**Events:** `("revoked",)` → `(schedule_id: u64, token_address: Address, unvested: i128)`
 
 ---
 
