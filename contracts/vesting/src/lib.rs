@@ -2118,6 +2118,22 @@ mod tests {
         assert_eq!(ids2.get(0).unwrap(), id2);
     }
 
+    // ── get_beneficiary_schedules() unknown address returns empty ─────────────
+
+    /// get_beneficiary_schedules() uses `unwrap_or(Vec::new(&env))` for
+    /// addresses that have never been assigned a schedule.  This test pins
+    /// that fallback: a fresh address with no schedules must return an empty
+    /// Vec, not a panic.  A storage key change or removal of the `unwrap_or`
+    /// would break this immediately.
+    #[test]
+    fn test_get_beneficiary_schedules_unknown_returns_empty() {
+        let (env, vesting_id, _admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let stranger = Address::generate(&env);
+        let ids = vesting.get_beneficiary_schedules(&stranger);
+        assert_eq!(ids.len(), 0);
+    }
+
     // ── beneficiary_schedules accumulates multiple schedules ─────────────────
 
     #[test]
@@ -3860,121 +3876,6 @@ mod tests {
 
         // Second cancel must panic with VestingError::ScheduleNotActive
         vesting.cancel_schedule(&id, &recipient);
-    }
-
-    // ── cancel_schedule tests (#282) ─────────────────────────────────────────
-
-    /// Success case: cancel a schedule whose start_time is in the future.
-    /// Return value == total_amount, status becomes Cancelled, recipient
-    /// receives all tokens.
-    #[test]
-    fn test_cancel_schedule_success() {
-        let (env, vesting_id, _admin, beneficiary, funder) = setup();
-        let token = new_token(&env, &funder, 100_000);
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        let recipient = Address::generate(&env);
-
-        // start_time is 1000 seconds in the future
-        let future_start = env.ledger().timestamp() + 1000;
-
-        let id = vesting.create_schedule(&CreateScheduleParams {
-            from: funder.clone(),
-            beneficiary: beneficiary.clone(),
-            token_address: token.clone(),
-            total_amount: 100_000,
-            start_time: future_start,
-            cliff_duration: 0,
-            total_duration: 100,
-        });
-
-        let returned = vesting.cancel_schedule(&id, &recipient);
-
-        // Return value must equal total_amount
-        assert_eq!(returned, 100_000);
-
-        // Schedule status must be Cancelled
-        let sched = vesting.get_schedule(&id);
-        assert_eq!(sched.status, ScheduleStatus::Cancelled);
-
-        // Recipient must have received all the tokens
-        let tk = soroban_sdk::token::Client::new(&env, &token);
-        assert_eq!(tk.balance(&recipient), 100_000);
-
-        // Vesting contract holds nothing
-        assert_eq!(tk.balance(&vesting_id), 0);
-    }
-
-    /// Panics when the schedule's start_time has already been reached
-    /// (now >= start_time). VestingError::ScheduleNotStarted.
-    #[test]
-    #[should_panic]
-    fn test_cancel_schedule_already_started_panics() {
-        let (env, vesting_id, _admin, beneficiary, funder) = setup();
-        let token = new_token(&env, &funder, 100_000);
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        let recipient = Address::generate(&env);
-
-        // start_time == now: the schedule is considered started immediately
-        let start_now = env.ledger().timestamp();
-
-        let id = vesting.create_schedule(&CreateScheduleParams {
-            from: funder.clone(),
-            beneficiary: beneficiary.clone(),
-            token_address: token.clone(),
-            total_amount: 100_000,
-            start_time: start_now,
-            cliff_duration: 0,
-            total_duration: 100,
-        });
-
-        // now == start_time → should panic with VestingError::ScheduleNotStarted
-        vesting.cancel_schedule(&id, &recipient);
-    }
-
-    /// Panics when trying to cancel a schedule that was already cancelled
-    /// (status != Active → ScheduleNotActive).
-    #[test]
-    #[should_panic]
-    fn test_cancel_already_cancelled_panics() {
-        let (env, vesting_id, _admin, beneficiary, funder) = setup();
-        let token = new_token(&env, &funder, 100_000);
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        let recipient = Address::generate(&env);
-
-        let future_start = env.ledger().timestamp() + 1000;
-
-        let id = vesting.create_schedule(&CreateScheduleParams {
-            from: funder.clone(),
-            beneficiary: beneficiary.clone(),
-            token_address: token.clone(),
-            total_amount: 100_000,
-            start_time: future_start,
-            cliff_duration: 0,
-            total_duration: 100,
-        });
-
-        // First cancel succeeds
-        vesting.cancel_schedule(&id, &recipient);
-
-        // Second cancel must panic with VestingError::ScheduleNotActive
-        vesting.cancel_schedule(&id, &recipient);
-    }
-
-    // ── is_admin ──────────────────────────────────────────────────────────────
-
-    /// is_admin() returns true for the admin and false for any other address.
-    #[test]
-    fn test_is_admin() {
-        let (env, vesting_id, admin, _beneficiary, _funder) = setup();
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-
-        assert!(vesting.is_admin(&admin), "admin address should return true");
-
-        let stranger = Address::generate(&env);
-        assert!(
-            !vesting.is_admin(&stranger),
-            "non-admin address should return false"
-        );
     }
 }
 
