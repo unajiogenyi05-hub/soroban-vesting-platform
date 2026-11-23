@@ -675,6 +675,39 @@ impl VestingContract {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
 
+    /// Return the number of schedules whose status is `Active`.
+    ///
+    /// Scans all schedule IDs from `1` to `schedule_count()` and counts those
+    /// whose `status == ScheduleStatus::Active`.
+    ///
+    /// # Complexity
+    /// O(n) over all schedules ever created.  For deployments with large numbers
+    /// of historical (revoked/completed) schedules, prefer off-chain indexing or
+    /// iterating `get_schedules_paginated` instead of calling this repeatedly
+    /// in a hot path.
+    ///
+    /// # Write footprint
+    /// None — does not extend any TTL.
+    ///
+    /// # Auth
+    /// None.
+    pub fn get_active_schedule_count(env: Env) -> u64 {
+        let total: u64 = env.storage().instance().get(&SCHED_ID).unwrap_or(0);
+        let mut count = 0u64;
+        for id in 1..=total {
+            if let Some(s) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, VestingSchedule>(&DataKey::Schedule(id))
+            {
+                if s.status == ScheduleStatus::Active {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
     /// Return a page of schedules ordered by ID ascending.
     ///
     /// `offset` is the number of schedules to skip (0-based). `limit` is the
@@ -1933,6 +1966,79 @@ mod tests {
         // Limit larger than total → all three.
         let all = vesting.get_schedules_paginated(&0u64, &100u64);
         assert_eq!(all.len(), 3);
+    }
+
+    // ── get_active_schedule_count ─────────────────────────────────────────────
+
+    /// Returns 0 when no schedules have been created.
+    #[test]
+    fn test_active_schedule_count_empty() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        assert_eq!(vesting.get_active_schedule_count(), 0);
+    }
+
+    /// Returns the correct count after creates, a revoke, and a completed claim.
+    ///
+    /// Creates three schedules, revokes one, completes another via full claim,
+    /// and verifies that only the remaining Active schedule is counted.
+    #[test]
+    fn test_active_schedule_count_mixed_statuses() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+        let recipient = Address::generate(&env);
+
+        // Create three Active schedules.
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id3 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // All three are Active.
+        assert_eq!(vesting.get_active_schedule_count(), 3);
+        // schedule_count still counts all three (total ever created).
+        assert_eq!(vesting.schedule_count(), 3);
+
+        // Revoke id1 → Revoked; active count drops to 2.
+        vesting.revoke(&id1, &recipient);
+        assert_eq!(vesting.get_active_schedule_count(), 2);
+
+        // Advance past the end, claim id2 fully → Completed; active count drops to 1.
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        vesting.claim(&id2);
+        assert_eq!(vesting.get_active_schedule_count(), 1);
+
+        // id3 is still Active.
+        assert_eq!(vesting.get_schedule(&id3).status, ScheduleStatus::Active);
+        assert_eq!(vesting.get_active_schedule_count(), 1);
+
+        // schedule_count is unchanged — still 3 (total ever created).
+        assert_eq!(vesting.schedule_count(), 3);
     }
 
     // ── multiple beneficiaries have independent schedules ────────────────────
