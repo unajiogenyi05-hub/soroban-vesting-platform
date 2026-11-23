@@ -7,10 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Tests
-- contracts/vesting/src/lib.rs: `test_get_beneficiary_schedules_unknown_returns_empty` (#229).
-  Asserts that `get_beneficiary_schedules()` returns an empty `Vec` (len 0) for an
-  address that has never been assigned a schedule, pinning the `unwrap_or(Vec::new(&env))`
-  fallback path that existing tests never exercised.
+- contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
+  Verifies that `confirm()` panics with `"proposal not pending"` when called on a
+  Cancelled proposal. The guard inside `confirm()` covers both Executed and
+  Cancelled statuses; the Executed path was already covered by
+  `test_revoke_confirmation_after_execute_panics`; this test closes the gap for
+  the Cancelled path.
+### Added
+- contracts/vesting/src/lib.rs: `get_active_schedule_count(env) -> u64` (#222).
+  Returns the count of schedules with `status == Active` by scanning IDs
+  `1..=schedule_count()`. Documented as O(n); no write footprint (no TTL bump).
+  Closes the gap where `schedule_count()` returned the total ever created
+  (including revoked/completed), forcing dashboards to filter client-side.
+### Tests
+- contracts/vesting/src/lib.rs: `test_active_schedule_count_empty` and
+  `test_active_schedule_count_mixed_statuses` (#222). Cover: zero schedules,
+  correct count after three creates, decrement after a revoke, and decrement
+  after a completed full claim. Also asserts that `schedule_count()` (total
+  ever created) is unaffected by status changes.
 ### Added
 - scripts/deploy-multisig.sh: standalone script to deploy the multisig
   contract to any Stellar network with configurable `OWNERS` (JSON array),
@@ -653,6 +667,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attributes that masked warnings from soroban-sdk internals. No deprecated or
   clippy-flagged constructs found in our own code; if SDK-internal warnings
   surface they can be re-added with a `// reason:` comment (#297).
+
+### Added — 2026-10-16
+
+- contracts/vesting/src/lib.rs: `is_admin(env, address) -> bool` (#221).
+  Pure-read predicate that returns `true` when `address` equals the stored
+  admin. No write footprint; reads instance storage and compares. Matches the
+  `is_owner()` pattern in the multisig contract, eliminating the need for
+  callers to call `get_admin()` and compare addresses manually. Two new unit
+  tests: `test_is_admin_true_for_admin` and `test_is_admin_false_for_non_admin`.
+  `contracts/vesting/README.md` updated with the new function reference entry.
+
+### Added — 2026-10-17
+
+- contracts/vesting: `is_admin(env, address: Address) -> bool` (#221). Pure
+  read-only predicate that returns `true` when `address` equals the current
+  admin. Matches the `is_owner()` pattern in the multisig contract. No write
+  footprint. New tests: `test_is_admin` (true for admin, false for non-admin).
+
+### Added — 2026-10-16
+
+- contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
+  that `vested_amount` uses integer (floor) division
+  (`elapsed * total_amount / total_duration`), explains dust accumulation until
+  schedule completion, includes a worked example (99-token / 100-second
+  schedule), and adds integrator notes. Linked from the `vested_amount` source
+  comment.
+
+- contracts/vesting/src/lib.rs: inline `// Note:` comment in `vested_amount()`
+  (#96). Points to the README "Rounding behavior" section and explains that the
+  fractional remainder (dust) is released only when `elapsed >= total_duration`.
 
 ### Added — 2026-10-15
 
