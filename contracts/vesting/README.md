@@ -95,7 +95,7 @@ Authorization: admin.
 - `"schedule not found"` — schedule ID does not exist
 - `"schedule is not active"` — schedule is already Revoked or Completed
 
-**Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)`
+**Events:** `("revoked",)` → `(schedule_id: u64, token_address: Address, unvested: i128)`
 
 ---
 
@@ -290,7 +290,7 @@ See [docs/ttl.md](../../docs/ttl.md).
 |-------|------|-----------|
 | `("created",)` | `(id, beneficiary, total_amount, token_address)` | `create_schedule` |
 | `("claimed",)` | `(schedule_id, beneficiary, amount)` | `claim` |
-| `("revoked",)` | `(schedule_id, unvested)` | `revoke` |
+| `("revoked",)` | `(schedule_id, token_address, unvested)` | `revoke` |
 | `("paused",)` | `()` | `pause` |
 | `("unpaused",)` | `()` | `unpause` |
 | `("admXfer",)` | `(old_admin, new_admin)` | `transfer_admin` |

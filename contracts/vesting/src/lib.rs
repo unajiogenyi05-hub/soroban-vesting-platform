@@ -294,8 +294,10 @@ impl VestingContract {
             tk.transfer(&env.current_contract_address(), &recipient, &unvested);
         }
 
-        env.events()
-            .publish((EVT_REVOKED,), (schedule_id, unvested));
+        env.events().publish(
+            (EVT_REVOKED,),
+            (schedule_id, schedule.token.clone(), unvested),
+        );
 
         unvested
     }
@@ -1738,6 +1740,7 @@ mod tests {
 
     #[test]
     fn test_event_revoked() {
+        use soroban_sdk::IntoVal;
         let (env, vesting_id, admin, beneficiary, funder) = setup();
         let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
@@ -1746,21 +1749,31 @@ mod tests {
         let id = vesting.create_schedule(&CreateScheduleParams {
             from: funder.clone(),
             beneficiary: beneficiary.clone(),
-            token_address: token,
+            token_address: token.clone(),
             total_amount: 100_000,
             start_time: start,
             cliff_duration: 0,
             total_duration: 100,
         });
+
+        // Revoke at t=0: 0 vested, all 100_000 unvested.
         vesting.revoke(&id, &admin);
 
-        let found = !env
-            .events()
-            .all()
-            .filter_by_contract(&vesting_id)
-            .events()
-            .is_empty();
-        assert!(found, "expected 'revoked' event");
+        // The "revoked" event must include token_address so indexers can
+        // identify which token was returned without a separate get_schedule
+        // call: (schedule_id, token_address, unvested_amount).
+        assert_eq!(
+            env.events().all().filter_by_contract(&vesting_id),
+            soroban_sdk::vec![
+                &env,
+                (
+                    vesting_id.clone(),
+                    (symbol_short!("revoked"),).into_val(&env),
+                    (id, token.clone(), 100_000i128).into_val(&env),
+                )
+            ],
+            "expected 'revoked' event with (schedule_id, token_address, unvested_amount)"
+        );
     }
 
     // ── events: pause/unpause ─────────────────────────────────────────────────

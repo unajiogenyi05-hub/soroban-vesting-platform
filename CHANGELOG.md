@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed — 2026-10-20
+
+- contracts/vesting/src/lib.rs: `revoked` event now includes `token_address`
+  (#217). The event data tuple changes from `(schedule_id, unvested_amount)`
+  to `(schedule_id, token_address, unvested_amount)`. Off-chain indexers can
+  now identify which token was returned without a separate `get_schedule` RPC
+  call, consistent with the `created` event which already includes
+  `token_address`. Updated `test_event_revoked` to assert the three-field
+  payload with exact values. Updated `contracts/vesting/README.md` events
+  table and `revoke()` function docs.
+
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
