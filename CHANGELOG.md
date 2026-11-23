@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests
+- contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
+  Verifies that `confirm()` panics with `"proposal not pending"` when called on a
+  Cancelled proposal. The guard inside `confirm()` covers both Executed and
+  Cancelled statuses; the Executed path was already covered by
+  `test_revoke_confirmation_after_execute_panics`; this test closes the gap for
+  the Cancelled path.
 ### Added
 - contracts/vesting/src/lib.rs: `get_active_schedule_count(env) -> u64` (#222).
   Returns the count of schedules with `status == Active` by scanning IDs
