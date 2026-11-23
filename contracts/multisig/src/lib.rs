@@ -1534,6 +1534,31 @@ mod tests {
         assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Cancelled);
     }
 
+    /// confirm() on a cancelled proposal must panic with "proposal not pending".
+    ///
+    /// The "proposal not pending" guard inside confirm() covers both Executed
+    /// and Cancelled statuses.  The Executed path is tested by
+    /// `test_revoke_confirmation_after_execute_panics`; this test closes the
+    /// gap for the Cancelled path.
+    #[test]
+    #[should_panic(expected = "proposal not pending")]
+    fn test_confirm_on_cancelled_proposal_panics() {
+        let (env, contract_id, o1, o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        let target = env.register(stub_token::StubToken, ());
+
+        // Submit and immediately cancel as the proposer.
+        let id = ms.submit(
+            &o1,
+            &call_action(&env, &target, symbol_short!("ping")),
+            &String::from_str(&env, "cancel then confirm test"),
+        );
+        ms.cancel(&o1, &id);
+
+        // o2 attempts to confirm the now-Cancelled proposal — must panic.
+        ms.confirm(&o2, &id);
+    }
+
     #[test]
     #[should_panic(expected = "only proposer can cancel")]
     fn test_cancel_by_non_proposer_panics() {

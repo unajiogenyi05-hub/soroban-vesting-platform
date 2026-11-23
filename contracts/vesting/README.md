@@ -283,6 +283,24 @@ Read-only; does not extend TTL.
 
 ---
 
+### `get_active_schedule_count(env) -> u64`
+
+Returns the number of schedules whose status is `Active` (excludes Revoked,
+Completed, and Cancelled schedules).
+
+Useful for dashboards that display "X active schedules" without loading every
+schedule client-side.
+
+**Complexity:** O(n) over all schedules ever created. For deployments with large
+numbers of historical schedules prefer off-chain indexing or
+`get_schedules_paginated` instead.
+
+**Write footprint:** none — does not extend any TTL.
+
+Authorization: none.
+
+---
+
 ### `get_schedules_paginated(env, offset: u64, limit: u64) -> Vec<VestingSchedule>`
 
 Returns a page of schedules ordered by ID ascending. `offset` is the number of

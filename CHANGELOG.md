@@ -7,11 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Tests
-- contracts/token/src/lib.rs: `test_name_and_symbol_return_constructor_values` (#231).
-  Asserts that `name()` returns `"Vesting Token"` and `symbol()` returns `"VEST"` —
-  the exact values passed to the constructor via the `deploy()` helper. A key
-  collision or storage-layout change that caused either getter to return the wrong
-  value or panic would be caught immediately.
+- contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
+  Verifies that `confirm()` panics with `"proposal not pending"` when called on a
+  Cancelled proposal. The guard inside `confirm()` covers both Executed and
+  Cancelled statuses; the Executed path was already covered by
+  `test_revoke_confirmation_after_execute_panics`; this test closes the gap for
+  the Cancelled path.
+### Added
+- contracts/vesting/src/lib.rs: `get_active_schedule_count(env) -> u64` (#222).
+  Returns the count of schedules with `status == Active` by scanning IDs
+  `1..=schedule_count()`. Documented as O(n); no write footprint (no TTL bump).
+  Closes the gap where `schedule_count()` returned the total ever created
+  (including revoked/completed), forcing dashboards to filter client-side.
+### Tests
+- contracts/vesting/src/lib.rs: `test_active_schedule_count_empty` and
+  `test_active_schedule_count_mixed_statuses` (#222). Cover: zero schedules,
+  correct count after three creates, decrement after a revoke, and decrement
+  after a completed full claim. Also asserts that `schedule_count()` (total
+  ever created) is unaffected by status changes.
 ### Added
 - scripts/deploy-multisig.sh: standalone script to deploy the multisig
   contract to any Stellar network with configurable `OWNERS` (JSON array),
