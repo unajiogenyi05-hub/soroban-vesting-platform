@@ -698,6 +698,18 @@ mod tests {
         assert_eq!(token.balance(&admin), 1_000_000);
     }
 
+    /// name() and symbol() must return exactly the values passed to the
+    /// constructor.  A key collision or storage-layout change would cause one
+    /// or both getters to panic ("not initialized") or return a wrong value,
+    /// which this test catches immediately.
+    #[test]
+    fn test_name_and_symbol_return_constructor_values() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        assert_eq!(token.name(), String::from_str(&env, "Vesting Token"));
+        assert_eq!(token.symbol(), String::from_str(&env, "VEST"));
+    }
+
     #[test]
     fn test_transfer() {
         let (env, contract_id, admin) = deploy();

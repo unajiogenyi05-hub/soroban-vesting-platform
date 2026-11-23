@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests
+- contracts/token/src/lib.rs: `test_name_and_symbol_return_constructor_values` (#231).
+  Asserts that `name()` returns `"Vesting Token"` and `symbol()` returns `"VEST"` —
+  the exact values passed to the constructor via the `deploy()` helper. A key
+  collision or storage-layout change that caused either getter to return the wrong
+  value or panic would be caught immediately.
 ### Added
 - scripts/deploy-multisig.sh: standalone script to deploy the multisig
   contract to any Stellar network with configurable `OWNERS` (JSON array),
