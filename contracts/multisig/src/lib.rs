@@ -383,7 +383,8 @@ impl MultisigContract {
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        env.events().publish((EVT_EXECUTED,), proposal_id);
+        env.events()
+            .publish((EVT_EXECUTED,), (proposal_id, proposal.proposer.clone()));
 
         // Dispatch the action.
         match proposal.action {
@@ -449,7 +450,8 @@ impl MultisigContract {
             PERSISTENT_BUMP_LEDGERS,
         );
 
-        env.events().publish((EVT_CANCELLED,), proposal_id);
+        env.events()
+            .publish((EVT_CANCELLED,), (proposal_id, caller.clone()));
     }
 
     // ── Read ────────────────────────────────────────────────────────────────
@@ -1531,7 +1533,14 @@ mod tests {
             &String::from_str(&env, "test"),
         );
         ms.cancel(&o1, &id);
-        assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Cancelled);
+        let prop = ms.get_proposal(&id);
+        assert_eq!(prop.status, ProposalStatus::Cancelled);
+        // The cancel event payload is (proposal_id, caller).
+        // Verify that the data used in the event (caller == o1) matches the proposer.
+        assert_eq!(
+            prop.proposer, o1,
+            "event carries caller which must equal the proposer"
+        );
     }
 
     /// confirm() on a cancelled proposal must panic with "proposal not pending".
@@ -1755,13 +1764,29 @@ mod tests {
             &String::from_str(&env, "governance call"),
         );
 
-        let prop = ms.get_proposal(&id);
-        assert_eq!(prop.description, String::from_str(&env, "governance call"));
+        let prop_before = ms.get_proposal(&id);
+        assert_eq!(
+            prop_before.description,
+            String::from_str(&env, "governance call")
+        );
+        // The executed event carries (proposal_id, proposer).
+        // Capture proposer before execution so we can verify it matches the event data.
+        let proposer = prop_before.proposer.clone();
+        assert_eq!(
+            proposer, o1,
+            "proposer stored in proposal must match the submitter"
+        );
 
         ms.confirm(&o1, &id);
         ms.confirm(&o2, &id);
         ms.execute(&id);
         assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Executed);
+        // proposer is unchanged after execute; the event emits (id, proposer).
+        assert_eq!(
+            ms.get_proposal(&id).proposer,
+            o1,
+            "executed event data must include the original proposer"
+        );
     }
 
     // ── Issue #71: proposal_count() increments correctly across multiple submits

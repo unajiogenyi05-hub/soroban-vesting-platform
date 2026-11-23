@@ -700,11 +700,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-16
 
-- contracts/multisig/src/lib.rs: `test_get_proposal_nonexistent_panics` (#226).
-  Calls `get_proposal(999)` on a fresh 2-of-3 multisig and asserts the
-  expected panic message `"not found"`. Guards against a silent regression
-  where `.expect("not found")` could be replaced with `.unwrap_or_default()`
-  without anyone noticing the changed error behaviour.
+- contracts/multisig/src/lib.rs: `execute()` and `cancel()` now include the
+  proposer/caller address in their event payloads (#220). `execute()` emits
+  `("executed",) → (proposal_id: u64, proposer: Address)` and `cancel()` emits
+  `("cancelled",) → (proposal_id: u64, caller: Address)`, matching the
+  `("submitted",) → (id, proposer)` pattern already used in `submit()`. Off-chain
+  indexers can now identify the proposer and caller from events without a separate
+  `get_proposal()` call. Tests `test_execute_proposal_stored_fields` and
+  `test_cancel_by_proposer` updated to assert the new payload. README events table
+  updated.
 
 ### Added — 2026-10-16
 
