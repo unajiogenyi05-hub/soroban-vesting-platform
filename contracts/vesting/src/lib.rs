@@ -712,6 +712,26 @@ impl VestingContract {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
+    /// Return `true` if there are vested-but-unclaimed tokens for the given
+    /// schedule at the current ledger timestamp, `false` otherwise.
+    ///
+    /// Returns `false` if the schedule is not `Active` (Revoked or Completed).
+    /// Read-only — does not extend TTL or write any storage.
+    ///
+    /// **Panics:** `"schedule not found"` — schedule ID does not exist.
+    pub fn is_claimable(env: Env, schedule_id: u64) -> bool {
+        let schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+        if schedule.status != ScheduleStatus::Active {
+            return false;
+        }
+        let now = env.ledger().timestamp();
+        Self::vested_amount(&schedule, now) > schedule.claimed_amount
+    }
+
     pub fn schedule_count(env: Env) -> u64 {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
