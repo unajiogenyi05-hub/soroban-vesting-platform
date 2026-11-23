@@ -24,7 +24,6 @@
 //! Persistent Balance and Allowance entries are bumped on every write.
 
 #![no_std]
-#![allow(deprecated)]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Address,
@@ -42,17 +41,11 @@ const DECIMALS: Symbol = symbol_short!("DECIMALS");
 
 // ─── TTL constants ────────────────────────────────────────────────────────────
 
-/// Extend instance and persistent storage to ~180 days (ledgers of ~5 s each).
-/// This equals the network's `max_entry_ttl` (3 110 400 ledgers on both
-/// testnet and mainnet as of protocol 29, per stellar-core soroban-settings).
-/// Values above `max_entry_ttl` are silently clamped by the host, so using
-/// the exact maximum is both correct and maximally protective against archival.
-pub const INSTANCE_BUMP_LEDGERS: u32 = 3_110_400;
-/// Only extend when the remaining TTL drops below ~30 days.
-pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
-/// Persistent entries use the same window.
-pub const PERSISTENT_BUMP_LEDGERS: u32 = 3_110_400;
-pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
+/// Re-exported from `common` — see that crate for the rationale.
+pub use common::{
+    INSTANCE_BUMP_LEDGERS, INSTANCE_BUMP_THRESHOLD, PERSISTENT_BUMP_LEDGERS,
+    PERSISTENT_BUMP_THRESHOLD,
+};
 
 // ─── Error type ──────────────────────────────────────────────────────────────
 
@@ -373,7 +366,9 @@ impl TokenContract {
     /// - Current admin not initialized in storage
     ///
     /// # Events
-    /// Emits `(admXfer,)` → `(old_admin: Address, new_admin: Address)`
+    /// Intentionally emits `(admXfer,)` → `(old_admin: Address, new_admin: Address)`
+    /// so off-chain indexers can track admin hand-offs without polling `admin()`
+    /// on every block.  Exactly one event is emitted per call.
     pub fn transfer_admin(env: Env, new_admin: Address) {
         Self::bump_instance(&env);
         let old_admin: Address = env
@@ -516,13 +511,16 @@ impl TokenContract {
             .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
     }
 
-    fn require_admin(env: &Env) {
-        let admin: Address = env
-            .storage()
+    fn get_admin_address(env: &Env) -> Address {
+        env.storage()
             .instance()
             .get(&ADMIN)
-            .unwrap_or_else(|| panic_with_error!(env, TokenError::NotInitialized));
-        admin.require_auth();
+            .unwrap_or_else(|| panic_with_error!(env, TokenError::NotInitialized))
+    }
+
+    /// Require the current admin to authorise this call.
+    fn require_admin(env: &Env) {
+        Self::get_admin_address(env).require_auth();
     }
 
     fn require_not_paused(env: &Env) {
@@ -698,6 +696,18 @@ mod tests {
         let token = TokenContractClient::new(&env, &contract_id);
         assert_eq!(token.total_supply(), 1_000_000);
         assert_eq!(token.balance(&admin), 1_000_000);
+    }
+
+    /// name() and symbol() must return exactly the values passed to the
+    /// constructor.  A key collision or storage-layout change would cause one
+    /// or both getters to panic ("not initialized") or return a wrong value,
+    /// which this test catches immediately.
+    #[test]
+    fn test_name_and_symbol_return_constructor_values() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        assert_eq!(token.name(), String::from_str(&env, "Vesting Token"));
+        assert_eq!(token.symbol(), String::from_str(&env, "VEST"));
     }
 
     #[test]
@@ -977,6 +987,30 @@ mod tests {
         assert_eq!(token.balance(&recipient), 100);
     }
 
+    /// transfer_admin() emits exactly one event — the `admXfer` topic — and
+    /// no other event.  A future change that accidentally adds or removes an
+    /// event emission would break this test.
+    ///
+    /// Note: earlier versions of this contract omitted the event entirely.
+    /// The `admXfer` event was added deliberately so off-chain indexers can
+    /// track admin hand-offs without polling `admin()` on every block.
+    #[test]
+    fn test_transfer_admin_emits_exactly_admxfer_event() {
+        let (env, contract_id, _admin) = deploy();
+        let token = TokenContractClient::new(&env, &contract_id);
+        let new_admin = Address::generate(&env);
+
+        token.transfer_admin(&new_admin);
+
+        // Exactly one event must be emitted — the admXfer event.
+        // No extra events (e.g. from a future refactor) are allowed.
+        assert_eq!(
+            env.events().all().events().len(),
+            1,
+            "transfer_admin must emit exactly one event (admXfer)"
+        );
+    }
+
     // ── Allowance edge cases ──────────────────────────────────────────────────
 
     #[test]
@@ -1162,11 +1196,11 @@ mod tests {
 
     // ── Constructor guards ────────────────────────────────────────────────────
 
-    /// The constructor must panic with "decimals too large" when `decimals`
-    /// exceeds 18.  Registering the contract with `decimals = 19` exercises
-    /// the guard on line ~84 of lib.rs.
+    /// The constructor must reject `decimals` above 18 with
+    /// `TokenError::DecimalsTooLarge` (contract error code 1). Registering the
+    /// contract with `decimals = 19` exercises the guard on line ~84 of lib.rs.
     #[test]
-    #[should_panic(expected = "decimals too large")]
+    #[should_panic(expected = "Error(Contract, #1)")]
     fn test_constructor_rejects_decimals_too_large() {
         let env = Env::default();
         env.mock_all_auths();

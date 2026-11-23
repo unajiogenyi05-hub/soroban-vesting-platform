@@ -1,6 +1,9 @@
 # Rust / Cargo
 target/
 
+# Test coverage output (cargo tarpaulin --out Html)
+coverage/
+
 # Environment
 .env
 .env.local
