@@ -99,8 +99,10 @@ soroban-vesting-platform/
 │   └── demo-testnet.sh # End-to-end testnet lifecycle demo
 ├── docs/
 │   ├── architecture.md
+│   ├── events.md         # Every contract event: topics, data, emitter
 │   ├── faq.md            # Common integration questions answered
-│   └── testnet-demo.md   # Manual walkthrough
+│   ├── testnet-demo.md   # Manual walkthrough
+│   └── upgrade-path.md   # Migrating to a new contract version
 ├── .github/workflows/ci.yml
 ├── .env.example
 ├── Cargo.toml            # Workspace root
@@ -219,6 +221,14 @@ that walks through:
 
 ---
 
+## Events
+
+See [docs/events.md](docs/events.md) for every event the contracts publish,
+with topic tuples, data types, the emitting function and a `getEvents` RPC
+filter example for indexers.
+
+---
+
 ## FAQ
 
 See [docs/faq.md](docs/faq.md) for answers to common integration questions,
@@ -306,7 +316,7 @@ create_schedule(params)
 | `cancel(caller, proposal_id)` | proposer | Cancel proposal |
 | `extend_ttl()` | anyone | Permissionless instance keep-alive |
 | `get_proposal(id)` / `get_owners()` / `get_threshold()` | — | Read-only queries |
-| `proposal_count()` / `has_confirmed(id, owner)` / `is_owner(address)` | — | Read-only queries |
+| `proposal_count()` / `has_confirmed(id, owner)` / `get_confirmations(id)` / `is_owner(address)` | — | Read-only queries |
 
 `ProposalAction` variants:
 
@@ -393,7 +403,29 @@ Persistent entries (schedules, balances, proposals) are extended on every write.
 See [docs/ttl.md](docs/ttl.md) for full details on what expires, the restore
 procedure, and how to tune the constants for a production deployment.
 
+For automated keep-alive (shell script, Node.js, cron, and GitHub Actions
+workflow) see [docs/offchain-keepalive.md](docs/offchain-keepalive.md).
+
 ---
+
+## Releases
+
+Push a semantic-version tag to build every contract and publish a GitHub
+Release:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release workflow runs the formatting, clippy, and test gates, builds with
+`stellar contract build`, verifies that exactly three WASM artifacts exist, and
+attaches `token.wasm`, `vesting.wasm`, `multisig.wasm`, and `sha256sums.txt` to
+the release. Downloaders can verify a build with:
+
+```bash
+sha256sum -c sha256sums.txt
+```
 
 ## Development
 
@@ -411,9 +443,55 @@ cargo test --all
 stellar contract build
 ```
 
+## TypeScript type definitions
+
+The `types/` directory contains `.d.ts` files for TypeScript consumers of the
+backend API. Import them directly — no build step is required.
+
+| File | Covers |
+|------|--------|
+| [`types/vesting.d.ts`](types/vesting.d.ts) | `VestingSchedule`, `ScheduleStatus`, `CreateScheduleParams`, `ClaimableAmount`, `BeneficiarySchedules` |
+| [`types/token.d.ts`](types/token.d.ts) | `TokenInfo`, `TokenBalance`, `TokenAllowance`, `MintParams`, `TransferParams`, `ApproveParams` |
+| [`types/multisig.d.ts`](types/multisig.d.ts) | `Proposal`, `ProposalStatus`, `ProposalAction`, `CallData`, `SubmitProposalParams`, `ConfirmParams` |
+
+All three files export a shared `ApiResponse<T>` generic matching the
+`{ success, data, error? }` envelope every backend route returns.
+
+```ts
+import type { ApiResponse, VestingSchedule } from './types/vesting';
+
+const res: ApiResponse<VestingSchedule> = await fetch('/api/vesting/schedule/1')
+  .then(r => r.json());
+
+if (res.success) {
+  console.log(res.data.beneficiary, res.data.totalAmount);
+}
+```
+
 ---
 
-## Backend API — live data note
+## Backend API
+
+### Postman Collection
+
+A ready-to-import Postman collection covering all 28 endpoints is at
+[`docs/postman-collection.json`](docs/postman-collection.json)
+(Postman Collection v2.1 format).
+
+**Import steps:**
+
+1. Open Postman and click **Import** (top-left).
+2. Select **File** and choose `docs/postman-collection.json`.
+3. The collection appears as **Soroban Vesting Platform API** with four
+   folders: Health, Vesting, Token, and Multisig.
+4. The collection variable `baseUrl` defaults to `http://localhost:3001`.
+   To point at a different host, open the collection, go to **Variables**,
+   and update `baseUrl`.
+
+Each request includes an example request body and an example response so
+you can explore the API shape before the backend is running.
+
+### Live data note
 
 The backend routes are pre-wired. For live on-chain data, set these in `.env`
 after deploying the contracts (Testnet IDs are listed in
@@ -456,6 +534,9 @@ security architecture notes.
 For a detailed per-function authorization model, trust hierarchy, CEI
 compliance summary, and attack surface analysis see
 [docs/security-model.md](docs/security-model.md).
+
+For the contract upgrade and state migration guide see
+[docs/upgrade-path.md](docs/upgrade-path.md).
 
 ---
 
