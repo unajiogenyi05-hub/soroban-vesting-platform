@@ -698,6 +698,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#96). Points to the README "Rounding behavior" section and explains that the
   fractional remainder (dust) is released only when `elapsed >= total_duration`.
 
+### Added — 2026-10-16
+
+- contracts/multisig/src/lib.rs: `execute()` and `cancel()` now include the
+  proposer/caller address in their event payloads (#220). `execute()` emits
+  `("executed",) → (proposal_id: u64, proposer: Address)` and `cancel()` emits
+  `("cancelled",) → (proposal_id: u64, caller: Address)`, matching the
+  `("submitted",) → (id, proposer)` pattern already used in `submit()`. Off-chain
+  indexers can now identify the proposer and caller from events without a separate
+  `get_proposal()` call. Tests `test_execute_proposal_stored_fields` and
+  `test_cancel_by_proposer` updated to assert the new payload. README events table
+  updated.
+
+### Added — 2026-10-16
+
+- contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
+  that `vested_amount` uses integer (floor) division
+  (`elapsed * total_amount / total_duration`), explains dust accumulation until
+  schedule completion, includes a worked example (99-token / 100-second
+  schedule), and adds integrator notes. Linked from the `vested_amount` source
+  comment.
+
+- contracts/vesting/src/lib.rs: inline `// Note:` comment in `vested_amount()`
+  (#96). Points to the README "Rounding behavior" section and explains that the
+  fractional remainder (dust) is released only when `elapsed >= total_duration`.
+
 ### Added — 2026-10-15
 
 - contracts/multisig: `confirm()` now includes `confirmation_count` in its

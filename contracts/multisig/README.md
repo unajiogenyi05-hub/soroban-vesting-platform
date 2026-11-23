@@ -128,7 +128,7 @@ Authorization: none (permissionless).
 - `"invalid threshold"` — `UpdateThreshold` with 0 or > owner count
 
 **Events:**
-- `("executed",)` → `proposal_id: u64`
+- `("executed",)` → `(proposal_id: u64, proposer: Address)`
 - `("ownerAdd",)` → `new_owner: Address` (if `AddOwner`)
 - `("ownerRm",)` → `owner: Address` (if `RemoveOwner`)
 
@@ -146,7 +146,7 @@ Authorization: `caller` (must be an owner and the proposer).
 - `"only proposer can cancel"` — `caller` is not the proposer
 - `"not an owner"` — `caller` is not in the owner set
 
-**Events:** `("cancelled",)` → `proposal_id: u64`
+**Events:** `("cancelled",)` → `(proposal_id: u64, caller: Address)`
 
 ---
 
@@ -300,8 +300,8 @@ contracts, plus how to filter them with Soroban RPC `getEvents`.
 | `("submitted",)` | `(id, proposer)` | `submit` |
 | `("confirmed",)` | `(proposal_id, owner, confirmation_count)` | `confirm` |
 | `("revoked",)` | `(proposal_id, owner)` | `revoke_confirmation` |
-| `("executed",)` | `proposal_id` | `execute` |
-| `("cancelled",)` | `proposal_id` | `cancel` |
+| `("executed",)` | `(proposal_id, proposer)` | `execute` |
+| `("cancelled",)` | `(proposal_id, caller)` | `cancel` |
 | `("ownerAdd",)` | `new_owner` | `execute` (AddOwner action) |
 | `("ownerRm",)` | `owner` | `execute` (RemoveOwner action) |
 
