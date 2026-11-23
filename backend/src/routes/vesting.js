@@ -15,38 +15,63 @@
  */
 
 const { Router } = require('express');
-const { nativeToScVal, Address, xdr } = require('@stellar/stellar-sdk');
-const { simulateContractCall } = require('../services/stellar');
+const { Keypair, nativeToScVal, scValToNative } = require('@stellar/stellar-sdk');
 const logger = require('../logger');
+const { simulateContractCall, validateStellarAddress } = require('../services/stellar');
+const contractIdMiddleware = require('../middleware/contractId')(
+  process.env.VESTING_CONTRACT_ID || '',
+);
 
 const router = Router();
-
-const CONTRACT_ID = process.env.VESTING_CONTRACT_ID || '';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function contractIdMiddleware(req, res, next) {
-  const id = req.body?.contractId || req.query?.contractId || CONTRACT_ID;
-  if (!id) {
-    return res.status(400).json({ error: 'contractId is required' });
-  }
-  req.contractId = id;
-  next();
-}
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 
 /**
  * GET /api/vesting/schedule/:id
- * Returns on-chain schedule data (simulated read).
+ *
+ * When VESTING_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates
+ * `get_schedule(schedule_id)` on the live contract and returns the parsed
+ * VestingSchedule. Falls back to a stub otherwise.
  */
 router.get('/schedule/:id', contractIdMiddleware, async (req, res, next) => {
   try {
-    const scheduleId = BigInt(req.params.id);
+    const rawId = req.params.id;
+    const isValidPositiveInteger = /^\d+$/.test(rawId) && BigInt(rawId) > 0n;
+
+    if (!isValidPositiveInteger) {
+      return res.status(400).json({ error: 'scheduleId must be a positive integer' });
+    }
+
+    const scheduleId = BigInt(rawId);
     logger.info(`get_schedule id=${scheduleId}`);
 
-    // In a full implementation this would call simulateContractCall.
-    // We return a documented stub so the frontend can be built against this shape.
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+      const idArg = nativeToScVal(scheduleId, { type: 'u64' });
+
+      const simResult = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'get_schedule',
+        args: [idArg],
+        sourceKeypair,
+      });
+
+      const schedule = scValToNative(simResult.result.retval);
+
+      logger.info(`get_schedule id=${scheduleId} result=${JSON.stringify(schedule)}`);
+      return res.json({
+        success: true,
+        data: {
+          ...schedule,
+          id: Number(scheduleId),
+          contractId: req.contractId,
+        },
+      });
+    }
+
+    // Stub fallback: contract not configured.
     res.json({
       success: true,
       data: {
@@ -63,12 +88,45 @@ router.get('/schedule/:id', contractIdMiddleware, async (req, res, next) => {
 /**
  * GET /api/vesting/claimable/:id
  */
-router.get('/claimable/:id', contractIdMiddleware, async (req, res, next) => {
+router.get('/claimable/:id', async (req, res, next) => {
   try {
+    const rawId = req.params.id;
+    if (!/^\d+$/.test(rawId)) {
+      return res.status(400).json({ error: 'scheduleId must be a positive u64 integer' });
+    }
+
+    const scheduleId = BigInt(rawId);
+    if (scheduleId <= 0n || scheduleId > 18446744073709551615n) {
+      return res.status(400).json({ error: 'scheduleId must be a positive u64 integer' });
+    }
+
+    const contractId = process.env.VESTING_CONTRACT_ID || '';
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+      const simResult = await simulateContractCall({
+        contractId,
+        method: 'get_claimable',
+        args: [nativeToScVal(scheduleId, { type: 'u64' })],
+        sourceKeypair,
+      });
+      const claimableAmount = scValToNative(simResult.result.retval);
+
+      return res.json({
+        success: true,
+        data: {
+          scheduleId: Number(scheduleId),
+          claimableAmount: claimableAmount.toString(),
+          contractId,
+        },
+      });
+    }
+
     res.json({
       success: true,
       data: {
-        scheduleId: Number(req.params.id),
+        scheduleId: Number(scheduleId),
         claimableAmount: 0,
         note: 'Set VESTING_CONTRACT_ID to query live contract.',
       },
@@ -93,8 +151,20 @@ router.post('/schedule', contractIdMiddleware, async (req, res, next) => {
     if (!from || !beneficiary || !tokenAddress || !totalAmount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    if (!validateStellarAddress(from)) {
+      return res.status(400).json({ error: 'invalid Stellar address: from' });
+    }
+    if (!validateStellarAddress(beneficiary)) {
+      return res.status(400).json({ error: 'invalid Stellar address: beneficiary' });
+    }
+    if (!validateStellarAddress(tokenAddress)) {
+      return res.status(400).json({ error: 'invalid Stellar address: tokenAddress' });
+    }
     if (Number(totalAmount) <= 0) {
       return res.status(400).json({ error: 'totalAmount must be positive' });
+    }
+    if (!totalDuration || Number(totalDuration) <= 0) {
+      return res.status(400).json({ error: 'totalDuration must be positive' });
     }
     if (Number(cliffDuration) > Number(totalDuration)) {
       return res.status(400).json({ error: 'cliffDuration cannot exceed totalDuration' });
@@ -131,6 +201,9 @@ router.post('/claim', contractIdMiddleware, async (req, res, next) => {
     if (!scheduleId || !beneficiary) {
       return res.status(400).json({ error: 'scheduleId and beneficiary are required' });
     }
+    if (!validateStellarAddress(beneficiary)) {
+      return res.status(400).json({ error: 'invalid Stellar address: beneficiary' });
+    }
     logger.info(`claim scheduleId=${scheduleId} by=${beneficiary}`);
     res.status(202).json({
       success: true,
@@ -151,6 +224,9 @@ router.post('/revoke', contractIdMiddleware, async (req, res, next) => {
     const { scheduleId, recipient } = req.body;
     if (!scheduleId || !recipient) {
       return res.status(400).json({ error: 'scheduleId and recipient are required' });
+    }
+    if (!validateStellarAddress(recipient)) {
+      return res.status(400).json({ error: 'invalid Stellar address: recipient' });
     }
     logger.info(`revoke scheduleId=${scheduleId} recipient=${recipient}`);
     res.status(202).json({
@@ -189,14 +265,55 @@ router.post('/unpause', contractIdMiddleware, async (req, res, next) => {
 
 /**
  * GET /api/vesting/beneficiary/:addr
+ *
+ * When VESTING_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates
+ * `get_beneficiary_schedules(beneficiary)` on the live contract and returns
+ * the parsed Vec<u64> as an array of schedule IDs. Falls back to an empty
+ * array stub otherwise.
  */
 router.get('/beneficiary/:addr', contractIdMiddleware, async (req, res, next) => {
   try {
     const { addr } = req.params;
     logger.info(`get_beneficiary_schedules addr=${addr}`);
+
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      // Validate Stellar account ID format (G + 55 base-32 chars).
+      if (!/^G[A-Z2-7]{55}$/.test(addr)) {
+        return res.status(400).json({ error: 'Invalid Stellar address' });
+      }
+
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+      const addrArg = nativeToScVal(addr, { type: 'address' });
+
+      const simResult = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'get_beneficiary_schedules',
+        args: [addrArg],
+        sourceKeypair,
+      });
+
+      // Decode Vec<u64>; scValToNative returns a JS array of BigInt values.
+      const raw = scValToNative(simResult.result.retval);
+      const scheduleIds = Array.isArray(raw) ? raw.map(Number) : [];
+
+      logger.info(`get_beneficiary_schedules addr=${addr} ids=${JSON.stringify(scheduleIds)}`);
+      return res.json({
+        success: true,
+        data: { beneficiary: addr, scheduleIds, contractId: req.contractId },
+      });
+    }
+
+    // Stub fallback: contract not configured.
     res.json({
       success: true,
-      data: { beneficiary: addr, scheduleIds: [], contractId: req.contractId },
+      data: {
+        beneficiary: addr,
+        scheduleIds: [],
+        contractId: req.contractId,
+        note: 'Set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY to read live data.',
+      },
     });
   } catch (err) {
     next(err);
@@ -205,10 +322,42 @@ router.get('/beneficiary/:addr', contractIdMiddleware, async (req, res, next) =>
 
 /**
  * GET /api/vesting/count
+ *
+ * When VESTING_CONTRACT_ID and SOURCE_SECRET_KEY are set, simulates
+ * `schedule_count()` on the live contract and returns the parsed u64 count.
+ * Falls back to stub { count: 0 } otherwise.
  */
 router.get('/count', contractIdMiddleware, async (req, res, next) => {
   try {
-    res.json({ success: true, data: { count: 0, contractId: req.contractId } });
+    const sourceSecret = process.env.SOURCE_SECRET_KEY || '';
+
+    if (req.contractId && sourceSecret) {
+      const sourceKeypair = Keypair.fromSecret(sourceSecret);
+
+      const simResult = await simulateContractCall({
+        contractId: req.contractId,
+        method: 'schedule_count',
+        args: [],
+        sourceKeypair,
+      });
+
+      // schedule_count() returns u64; scValToNative returns BigInt.
+      const raw = scValToNative(simResult.result.retval);
+      const count = Number(raw);
+
+      logger.info(`schedule_count contractId=${req.contractId} count=${count}`);
+      return res.json({ success: true, data: { count, contractId: req.contractId } });
+    }
+
+    // Stub fallback: contract not configured.
+    res.json({
+      success: true,
+      data: {
+        count: 0,
+        contractId: req.contractId,
+        note: 'Set VESTING_CONTRACT_ID and SOURCE_SECRET_KEY to read live data.',
+      },
+    });
   } catch (err) {
     next(err);
   }
