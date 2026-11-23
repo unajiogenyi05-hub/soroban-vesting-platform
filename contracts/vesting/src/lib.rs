@@ -696,6 +696,18 @@ impl VestingContract {
         Self::get_admin_address(&env)
     }
 
+    /// Return `true` if `address` is the current admin, `false` otherwise.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn is_admin(env: Env, address: Address) -> bool {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .expect("not initialized");
+        admin == address
+    }
+
     pub fn is_paused(env: Env) -> bool {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
@@ -4010,6 +4022,23 @@ mod tests {
 
         // Second cancel must panic with VestingError::ScheduleNotActive
         vesting.cancel_schedule(&id, &recipient);
+    }
+
+    // ── is_admin ──────────────────────────────────────────────────────────────
+
+    /// is_admin() returns true for the admin and false for any other address.
+    #[test]
+    fn test_is_admin() {
+        let (env, vesting_id, admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+
+        assert!(vesting.is_admin(&admin), "admin address should return true");
+
+        let stranger = Address::generate(&env);
+        assert!(
+            !vesting.is_admin(&stranger),
+            "non-admin address should return false"
+        );
     }
 }
 
