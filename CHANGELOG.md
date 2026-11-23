@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- docs/events.md: added missing vesting `cancelled` event (emitted by
+  `cancel_schedule` with data `(schedule_id: u64, total_amount: i128)`) and
+  corrected multisig `executed` and `cancelled` payloads from bare `u64` to
+  their actual tuples: `executed` → `(proposal_id: u64, proposer: Address)`,
+  `cancelled` → `(proposal_id: u64, caller: Address)` (#214).
 ### Tests
 - contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
   Verifies that `confirm()` panics with `"proposal not pending"` when called on a

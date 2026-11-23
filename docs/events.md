@@ -33,6 +33,7 @@ that asked for this page, say it emits nothing, but `admXfer` was added in
 | `created` | `(Symbol("created"),)` | `(id: u64, beneficiary: Address, total_amount: i128, token_address: Address)` | `create_schedule`, `batch_create_schedule` (once per schedule) |
 | `claimed` | `(Symbol("claimed"),)` | `(schedule_id: u64, beneficiary: Address, amount: i128)` | `claim` |
 | `revoked` | `(Symbol("revoked"),)` | `(schedule_id: u64, unvested: i128)` | `revoke` |
+| `cancelled` | `(Symbol("cancelled"),)` | `(schedule_id: u64, total_amount: i128)` | `cancel_schedule` |
 | `paused` | `(Symbol("paused"),)` | `()` | `pause` |
 | `unpaused` | `(Symbol("unpaused"),)` | `()` | `unpause` |
 | `admXfer` | `(Symbol("admXfer"),)` | `(old_admin: Address, new_admin: Address)` | `transfer_admin` |
@@ -47,6 +48,10 @@ payload. Note that the vesting `revoked` event and the multisig `revoked`
 event share a name but have different payloads, so always filter by contract
 ID as well as topic.
 
+`cancelled` is emitted by `cancel_schedule`, which only succeeds when the
+schedule has not yet started (`now < start_time`). The full `total_amount` is
+returned to `recipient` in that call; the event records it for indexers.
+
 ## Multisig (`contracts/multisig/src/lib.rs`)
 
 | Event | Topics | Data | Emitted by |
@@ -54,13 +59,18 @@ ID as well as topic.
 | `submitted` | `(Symbol("submitted"),)` | `(id: u64, proposer: Address)` | `submit` |
 | `confirmed` | `(Symbol("confirmed"),)` | `(proposal_id: u64, owner: Address, confirmation_count: u32)` | `confirm` |
 | `revoked` | `(Symbol("revoked"),)` | `(proposal_id: u64, owner: Address)` | `revoke_confirmation` |
-| `executed` | `(Symbol("executed"),)` | `proposal_id: u64` | `execute` |
-| `cancelled` | `(Symbol("cancelled"),)` | `proposal_id: u64` | `cancel` |
+| `executed` | `(Symbol("executed"),)` | `(proposal_id: u64, proposer: Address)` | `execute` |
+| `cancelled` | `(Symbol("cancelled"),)` | `(proposal_id: u64, caller: Address)` | `cancel` |
 | `ownerAdd` | `(Symbol("ownerAdd"),)` | `new_owner: Address` | `execute` with an `AddOwner` action (via `internal_add_owner`) |
 | `ownerRm` | `(Symbol("ownerRm"),)` | `owner: Address` | `execute` with a `RemoveOwner` action (via `internal_remove_owner`) |
 
-`executed`, `cancelled`, `ownerAdd` and `ownerRm` carry a bare value, not a
-tuple, so decode the data as a single `u64` or `Address`.
+`executed`, `cancelled`, `ownerAdd` and `ownerRm` data encoding notes:
+
+- `executed` carries `(proposal_id: u64, proposer: Address)` as a tuple.
+- `cancelled` carries `(proposal_id: u64, caller: Address)` as a tuple, where
+  `caller` is the owner who cancelled (always the original proposer).
+- `ownerAdd` and `ownerRm` carry a bare `Address` value, not a tuple, so
+  decode the data as a single `Address`.
 
 `execute` publishes `executed` before it dispatches the action, so an
 `AddOwner` or `RemoveOwner` proposal produces two events in this order:
