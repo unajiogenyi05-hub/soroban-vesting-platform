@@ -128,7 +128,7 @@ Authorization: none (permissionless).
 - `"invalid threshold"` — `UpdateThreshold` with 0 or > owner count
 
 **Events:**
-- `("executed",)` → `proposal_id: u64`
+- `("executed",)` → `(proposal_id: u64, proposer: Address)`
 - `("ownerAdd",)` → `new_owner: Address` (if `AddOwner`)
 - `("ownerRm",)` → `owner: Address` (if `RemoveOwner`)
 
@@ -146,7 +146,7 @@ Authorization: `caller` (must be an owner and the proposer).
 - `"only proposer can cancel"` — `caller` is not the proposer
 - `"not an owner"` — `caller` is not in the owner set
 
-**Events:** `("cancelled",)` → `proposal_id: u64`
+**Events:** `("cancelled",)` → `(proposal_id: u64, caller: Address)`
 
 ---
 
@@ -176,11 +176,34 @@ Returns the total number of proposals submitted (the last assigned ID).
 Read-only; does not extend TTL.
 
 ---
+### `get_pending_proposals(env) -> Vec<u64>`
+
+Returns the IDs of all proposals whose status is `Pending`, in ascending ID
+order. Executed and Cancelled proposals are excluded. Returns an empty vector
+when there are no proposals.
+
+**Cost:** performs an O(n) scan over all proposal IDs from `1` to
+`proposal_count()`, reading each `DataKey::Proposal(id)` entry. Intended for
+the expected scale of proposals; prefer `get_proposal` for single lookups.
+
+Read-only — does not extend TTL or write any storage.
+
+Authorization: none.
+
+---
+
 
 ### `has_confirmed(env, proposal_id: u64, owner: Address) -> bool`
 
 Returns `true` if `owner` has confirmed `proposal_id`. Read-only; does not
 extend TTL.
+
+---
+
+### `get_confirmations(env, proposal_id: u64) -> Vec<Address>`
+
+Returns the owners who have confirmed `proposal_id`, in owner-list order.
+Empty when there are no confirmations. Read-only; does not extend TTL.
 
 ---
 
@@ -203,6 +226,25 @@ bots that poll proposal readiness without triggering execution.
 Read-only — does not extend TTL or write any storage.
 
 **Panics:** `"proposal not found"` — `proposal_id` does not exist in storage.
+
+---
+
+### `get_proposals_paginated(env, offset: u64, limit: u64) -> Vec<ProposalData>`
+
+Returns a page of proposals by zero-based `offset` and `limit`.
+
+Proposal IDs run from 1 to `proposal_count()` inclusive. `offset` is
+zero-based: `offset = 0, limit = 10` returns proposals with IDs 1–10;
+`offset = 10, limit = 10` returns proposals 11–20.
+
+| Condition | Behaviour |
+|-----------|-----------|
+| `offset >= proposal_count()` | Empty `Vec` returned |
+| `limit == 0` | Empty `Vec` returned |
+| `offset + limit > proposal_count()` | Truncated to the last existing proposal |
+| Archived persistent entry | Silently skipped (no panic) |
+
+Read-only — does not extend TTL or write any storage.
 
 ---
 
@@ -250,13 +292,16 @@ See [docs/ttl.md](../../docs/ttl.md).
 
 ## Events
 
+See [docs/events.md](../../docs/events.md) for every event across all three
+contracts, plus how to filter them with Soroban RPC `getEvents`.
+
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("submitted",)` | `(id, proposer)` | `submit` |
 | `("confirmed",)` | `(proposal_id, owner, confirmation_count)` | `confirm` |
 | `("revoked",)` | `(proposal_id, owner)` | `revoke_confirmation` |
-| `("executed",)` | `proposal_id` | `execute` |
-| `("cancelled",)` | `proposal_id` | `cancel` |
+| `("executed",)` | `(proposal_id, proposer)` | `execute` |
+| `("cancelled",)` | `(proposal_id, caller)` | `cancel` |
 | `("ownerAdd",)` | `new_owner` | `execute` (AddOwner action) |
 | `("ownerRm",)` | `owner` | `execute` (RemoveOwner action) |
 

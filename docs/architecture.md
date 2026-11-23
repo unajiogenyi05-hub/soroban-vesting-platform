@@ -168,6 +168,19 @@ documenting the SDK bump and any contract changes made to accommodate it.
 
 ---
 
+## Upgrade path
+
+Soroban contracts are immutable once deployed; there is no in-place WASM
+replacement. When new logic is required, the approach is to deploy a new
+contract, migrate state off-chain (export → import), redirect admin authority,
+and decommission the old contract.
+
+See [docs/upgrade-path.md](upgrade-path.md) for the full step-by-step guide
+covering immutability, state migration strategy, admin pointer migration,
+decommissioning, and Testnet validation.
+
+---
+
 ## Status
 
 This is an unaudited, testnet-ready reference implementation. No real value
