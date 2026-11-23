@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — 2026-10-16
 
+- contracts/multisig/src/lib.rs: `test_get_proposal_nonexistent_panics` (#226).
+  Calls `get_proposal(999)` on a fresh 2-of-3 multisig and asserts the
+  expected panic message `"not found"`. Guards against a silent regression
+  where `.expect("not found")` could be replaced with `.unwrap_or_default()`
+  without anyone noticing the changed error behaviour.
+
+### Added — 2026-10-16
+
 - contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
   that `vested_amount` uses integer (floor) division
   (`elapsed * total_amount / total_duration`), explains dust accumulation until

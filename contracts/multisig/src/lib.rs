@@ -1392,4 +1392,16 @@ mod tests {
         ms.execute(&id);
         assert_eq!(ms.get_proposal(&id).status, ProposalStatus::Executed);
     }
+
+    /// get_proposal() panics "not found" for an ID that was never submitted.
+    ///
+    /// This test guards against a silent regression to .unwrap_or_default()
+    /// or any other change that would swallow the missing-proposal error.
+    #[test]
+    #[should_panic(expected = "not found")]
+    fn test_get_proposal_nonexistent_panics() {
+        let (env, contract_id, _o1, _o2, _o3) = setup_2of3();
+        let ms = MultisigContractClient::new(&env, &contract_id);
+        ms.get_proposal(&999u64);
+    }
 }
