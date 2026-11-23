@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Tests
+- contracts/vesting/src/lib.rs: `test_get_beneficiary_schedules_unknown_returns_empty` (#229).
+  Asserts that `get_beneficiary_schedules()` returns an empty `Vec` (len 0) for an
+  address that has never been assigned a schedule, pinning the `unwrap_or(Vec::new(&env))`
+  fallback path that existing tests never exercised.
 ### Added
 - scripts/deploy-multisig.sh: standalone script to deploy the multisig
   contract to any Stellar network with configurable `OWNERS` (JSON array),

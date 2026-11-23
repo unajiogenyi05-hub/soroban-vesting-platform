@@ -1980,6 +1980,22 @@ mod tests {
         assert_eq!(ids2.get(0).unwrap(), id2);
     }
 
+    // ── get_beneficiary_schedules() unknown address returns empty ─────────────
+
+    /// get_beneficiary_schedules() uses `unwrap_or(Vec::new(&env))` for
+    /// addresses that have never been assigned a schedule.  This test pins
+    /// that fallback: a fresh address with no schedules must return an empty
+    /// Vec, not a panic.  A storage key change or removal of the `unwrap_or`
+    /// would break this immediately.
+    #[test]
+    fn test_get_beneficiary_schedules_unknown_returns_empty() {
+        let (env, vesting_id, _admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let stranger = Address::generate(&env);
+        let ids = vesting.get_beneficiary_schedules(&stranger);
+        assert_eq!(ids.len(), 0);
+    }
+
     // ── beneficiary_schedules accumulates multiple schedules ─────────────────
 
     #[test]
