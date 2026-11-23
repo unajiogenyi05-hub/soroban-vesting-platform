@@ -655,6 +655,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clippy-flagged constructs found in our own code; if SDK-internal warnings
   surface they can be re-added with a `// reason:` comment (#297).
 
+### Added — 2026-10-16
+
+- contracts/vesting/src/lib.rs: `is_admin(env, address) -> bool` (#221).
+  Pure-read predicate that returns `true` when `address` equals the stored
+  admin. No write footprint; reads instance storage and compares. Matches the
+  `is_owner()` pattern in the multisig contract, eliminating the need for
+  callers to call `get_admin()` and compare addresses manually. Two new unit
+  tests: `test_is_admin_true_for_admin` and `test_is_admin_false_for_non_admin`.
+  `contracts/vesting/README.md` updated with the new function reference entry.
+
+### Added — 2026-10-17
+
+- contracts/vesting: `is_admin(env, address: Address) -> bool` (#221). Pure
+  read-only predicate that returns `true` when `address` equals the current
+  admin. Matches the `is_owner()` pattern in the multisig contract. No write
+  footprint. New tests: `test_is_admin` (true for admin, false for non-admin).
+
+### Added — 2026-10-16
+
+- contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
+  that `vested_amount` uses integer (floor) division
+  (`elapsed * total_amount / total_duration`), explains dust accumulation until
+  schedule completion, includes a worked example (99-token / 100-second
+  schedule), and adds integrator notes. Linked from the `vested_amount` source
+  comment.
+
+- contracts/vesting/src/lib.rs: inline `// Note:` comment in `vested_amount()`
+  (#96). Points to the README "Rounding behavior" section and explains that the
+  fractional remainder (dust) is released only when `elapsed >= total_duration`.
+
 ### Added — 2026-10-15
 
 - contracts/multisig: `confirm()` now includes `confirmation_count` in its

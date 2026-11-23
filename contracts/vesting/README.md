@@ -252,9 +252,27 @@ Returns the current admin address. Read-only; does not extend TTL.
 
 ---
 
+### `is_admin(env, address: Address) -> bool`
+
+Returns `true` if `address` is the current admin, `false` otherwise.
+Read-only; does not extend TTL.
+
+**Panics:** `"not initialized"` — contract was never constructed (should not occur in practice)
+
+---
+
 ### `is_paused(env) -> bool`
 
 Returns `true` if the contract is paused. Read-only; does not extend TTL.
+
+---
+
+### `is_admin(env, address: Address) -> bool`
+
+Returns `true` if `address` is the current admin, `false` otherwise.
+Read-only; does not extend TTL.
+
+**Panics:** `"not initialized"` — contract was never initialized.
 
 ---
 
@@ -416,6 +434,61 @@ the result is always rounded down.  The rounding error per call is at most
 claims, because the final claim picks up any tokens left over from the
 truncation of earlier claims.  Over the full schedule the beneficiary still
 receives at most `total_amount` in total.
+
+---
+
+## Rounding behavior
+
+`vested_amount` uses integer (floor) division:
+
+```
+elapsed * total_amount / total_duration
+```
+
+Integer division truncates toward zero, so the result is always rounded
+**down** to the nearest whole token unit (stroop / base unit).
+
+### Consequences
+
+1. **Dust accumulates until schedule completion.** At any intermediate
+   timestamp the calculated vested amount may be slightly less than the
+   exact pro-rata share. The "missing" fraction of a token — the *dust* —
+   is not lost; it accumulates in the contract and becomes claimable only
+   when `elapsed >= total_duration`, at which point `vested_amount` returns
+   `total_amount` exactly.
+
+2. **Small totals amplify the effect.** The maximum dust at any point is
+   `total_duration - 1` base units. For a schedule with `total_amount = 1`
+   and `total_duration = 100`, the vested amount is `0` for the first 99
+   seconds and jumps to `1` only at `elapsed == 100`.
+
+3. **This is intentional.** The contract never over-pays; every token
+   locked at creation is eventually paid out in full.
+
+### Worked example
+
+Schedule: `total_amount = 99`, `total_duration = 100 s`, no cliff.
+
+| elapsed (s) | exact pro-rata | `vested_amount` (integer) | dust |
+|-------------|---------------|--------------------------|------|
+| 0 | 0.00 | 0 | 0 |
+| 1 | 0.99 | 0 | 0 |
+| 50 | 49.50 | 49 | 0.5 |
+| 99 | 98.01 | 98 | 0.99 |
+| 100 | 99.00 | 99 *(returns `total_amount`)* | 0 |
+
+At `elapsed = 50` the beneficiary can claim `49` tokens, not `49.5`.
+The remaining `0.5` (truncated to `0` in integer arithmetic) is held in
+the contract until the schedule completes.
+
+### Integrator notes
+
+- Poll `get_claimable` to obtain the exact claimable amount at the current
+  ledger timestamp before calling `claim`.
+- Do not assume `get_claimable` grows by exactly `total_amount / total_duration`
+  per second; some seconds it may grow by 0.
+- The final claim (at or after `start_time + total_duration`) always returns
+  whatever remains in the schedule, guaranteeing no token is permanently stuck.
 
 ---
 
