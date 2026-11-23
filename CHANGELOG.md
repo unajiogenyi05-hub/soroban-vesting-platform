@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- .github/workflows/ci.yml: cargo-tarpaulin code coverage step added to the
+  contracts job (#215). After the existing `cargo test` step, CI now installs
+  `cargo-tarpaulin --locked`, runs `cargo tarpaulin --all --engine llvm --out
+  Xml --output-dir coverage/` with `continue-on-error: true` so coverage
+  failures do not block merges, and uploads the XML report as the
+  `contract-coverage` artifact (14-day retention). The `make test-coverage`
+  target (HTML output) was already present for local use.
 ### Tests
 - contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
   Verifies that `confirm()` panics with `"proposal not pending"` when called on a
