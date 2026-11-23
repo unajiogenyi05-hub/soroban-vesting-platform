@@ -253,7 +253,13 @@ impl VestingContract {
 
         env.events().publish(
             (EVT_CLAIMED,),
-            (schedule_id, schedule.beneficiary, claimable),
+            (
+                schedule_id,
+                schedule.beneficiary,
+                claimable,
+                schedule.claimed_amount,
+                schedule.total_amount,
+            ),
         );
 
         claimable
@@ -371,8 +377,10 @@ impl VestingContract {
             tk.transfer(&env.current_contract_address(), recipient, &unvested);
         }
 
-        env.events()
-            .publish((EVT_REVOKED,), (schedule_id, unvested));
+        env.events().publish(
+            (EVT_REVOKED,),
+            (schedule_id, schedule.token.clone(), unvested),
+        );
 
         Ok(unvested)
     }
@@ -1740,6 +1748,75 @@ mod tests {
         vesting.claim(&id); // must panic with VestingError::ContractIsPaused
     }
 
+    // ── revoke() succeeds while paused (pause does not gate revoke) ──────────
+
+    /// revoke() is intentionally not pause-gated: the admin must be able to
+    /// recover unvested funds even when the contract is paused (documented in
+    /// the README "Pause semantics" section).
+    ///
+    /// This test verifies that a future refactor adding `require_not_paused`
+    /// to `revoke()` would be caught immediately.
+    ///
+    /// Setup: 100 000-token schedule, no cliff, 100-second duration.
+    /// Advance to t = start + 50 (50 % vested), then pause the contract.
+    /// Call revoke() and assert:
+    ///   - return value == 50 000 (unvested amount)
+    ///   - schedule.status == Revoked
+    ///   - is_paused() is still true (pause state unchanged)
+    #[test]
+    fn test_revoke_succeeds_while_paused() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance to 50 % vested, then pause.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.pause();
+        assert!(vesting.is_paused(), "contract must be paused before revoke");
+
+        // revoke() must succeed even though the contract is paused.
+        let unvested = vesting.revoke(&id, &admin);
+        assert_eq!(unvested, 50_000, "unvested amount must be 50_000");
+
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(
+            sched.status,
+            ScheduleStatus::Revoked,
+            "schedule status must be Revoked after revoke()"
+        );
+
+        // The pause state must be unaffected by revoke().
+        assert!(
+            vesting.is_paused(),
+            "contract must remain paused after revoke()"
+        );
+
+        // Token balances: beneficiary receives 50 000 (vested-but-unclaimed),
+        // admin/treasury receives 50 000 (unvested).
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            50_000,
+            "beneficiary must receive vested-but-unclaimed tokens"
+        );
+        assert_eq!(
+            token_client.balance(&admin),
+            50_000,
+            "admin must receive the unvested tokens"
+        );
+    }
+
     // ── unpause restores functionality ───────────────────────────────────────
 
     #[test]
@@ -2483,6 +2560,7 @@ mod tests {
 
     #[test]
     fn test_event_claimed() {
+        use soroban_sdk::IntoVal;
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
         let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
@@ -2500,19 +2578,36 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         vesting.claim(&id);
 
-        let found = !env
-            .events()
-            .all()
-            .filter_by_contract(&vesting_id)
-            .events()
-            .is_empty();
-        assert!(found, "expected 'claimed' event");
+        // The "claimed" event must include five fields so that off-chain
+        // indexers can compute remaining unvested without an extra RPC call:
+        //   (schedule_id, beneficiary, claimable, claimed_amount, total_amount)
+        // After claiming 50 000 of 100 000, claimed_amount == 50 000.
+        assert_eq!(
+            env.events().all().filter_by_contract(&vesting_id),
+            soroban_sdk::vec![
+                &env,
+                (
+                    vesting_id.clone(),
+                    (symbol_short!("claimed"),).into_val(&env),
+                    (
+                        id,
+                        beneficiary.clone(),
+                        50_000i128, // claimable
+                        50_000i128, // claimed_amount after this claim
+                        100_000i128 // total_amount
+                    )
+                        .into_val(&env),
+                )
+            ],
+            "expected 'claimed' event with (schedule_id, beneficiary, claimable, claimed_amount, total_amount)"
+        );
     }
 
     // ── events: revoke emits "revoked" ────────────────────────────────────────
 
     #[test]
     fn test_event_revoked() {
+        use soroban_sdk::IntoVal;
         let (env, vesting_id, admin, beneficiary, funder) = setup();
         let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
@@ -2521,21 +2616,31 @@ mod tests {
         let id = vesting.create_schedule(&CreateScheduleParams {
             from: funder.clone(),
             beneficiary: beneficiary.clone(),
-            token_address: token,
+            token_address: token.clone(),
             total_amount: 100_000,
             start_time: start,
             cliff_duration: 0,
             total_duration: 100,
         });
+
+        // Revoke at t=0: 0 vested, all 100_000 unvested.
         vesting.revoke(&id, &admin);
 
-        let found = !env
-            .events()
-            .all()
-            .filter_by_contract(&vesting_id)
-            .events()
-            .is_empty();
-        assert!(found, "expected 'revoked' event");
+        // The "revoked" event must include token_address so indexers can
+        // identify which token was returned without a separate get_schedule
+        // call: (schedule_id, token_address, unvested_amount).
+        assert_eq!(
+            env.events().all().filter_by_contract(&vesting_id),
+            soroban_sdk::vec![
+                &env,
+                (
+                    vesting_id.clone(),
+                    (symbol_short!("revoked"),).into_val(&env),
+                    (id, token.clone(), 100_000i128).into_val(&env),
+                )
+            ],
+            "expected 'revoked' event with (schedule_id, token_address, unvested_amount)"
+        );
     }
 
     // ── events: pause/unpause ─────────────────────────────────────────────────

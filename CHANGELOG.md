@@ -6,14 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Added
-- .github/workflows/ci.yml: cargo-tarpaulin code coverage step added to the
-  contracts job (#215). After the existing `cargo test` step, CI now installs
-  `cargo-tarpaulin --locked`, runs `cargo tarpaulin --all --engine llvm --out
-  Xml --output-dir coverage/` with `continue-on-error: true` so coverage
-  failures do not block merges, and uploads the XML report as the
-  `contract-coverage` artifact (14-day retention). The `make test-coverage`
-  target (HTML output) was already present for local use.
+### Fixed
+- backend/src/routes/vesting.test.js: fixed test suite crash caused by the
+  ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
+  breaking Jest's CommonJS transform (#108). Added a full `jest.mock` for
+  `@stellar/stellar-sdk` (matching the token test pattern) so the SDK is never
+  loaded by Jest directly. Replaced the orphaned `mockSimulate` jest.fn() with
+  the actual `simulateContractCall` mock obtained from `jest.mock('../services/stellar')`
+  in all live-call assertions — the old `mockSimulate` was never connected to
+  the route and those tests were silently vacuous. All 42 vesting tests now pass.
 ### Tests
 - contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
   Verifies that `confirm()` panics with `"proposal not pending"` when called on a
