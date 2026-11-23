@@ -148,10 +148,10 @@ cd backend && npm install && npm start
 ```
 
 > **Note:** `make deploy-testnet` is a convenience wrapper around `scripts/deploy.sh`.
-> Constructor arguments must be passed after `--` (e.g. `-- --admin "$ADMIN"`).
-> See [Deploy to Testnet](#deploy-to-testnet) for the full commands with all
-> required constructor arguments, or run `scripts/demo-testnet.sh` for an
-> end-to-end demo.
+> `scripts/deploy.sh` reads `SOURCE_ACCOUNT` and `ADMIN` from `.env` and passes
+> the required constructor arguments automatically for the `vesting` and `token`
+> contracts. See [Deploy to Testnet](#deploy-to-testnet) for the full commands,
+> or run `scripts/demo-testnet.sh` for an end-to-end demo.
 
 ---
 

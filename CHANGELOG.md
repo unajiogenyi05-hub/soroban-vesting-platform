@@ -7,11 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
-- docs/events.md: added missing vesting `cancelled` event (emitted by
-  `cancel_schedule` with data `(schedule_id: u64, total_amount: i128)`) and
-  corrected multisig `executed` and `cancelled` payloads from bare `u64` to
-  their actual tuples: `executed` → `(proposal_id: u64, proposer: Address)`,
-  `cancelled` → `(proposal_id: u64, caller: Address)` (#214).
+- backend/src/routes/vesting.test.js: fixed test suite crash caused by the
+  ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
+  breaking Jest's CommonJS transform (#108). Added a full `jest.mock` for
+  `@stellar/stellar-sdk` (matching the token test pattern) so the SDK is never
+  loaded by Jest directly. Replaced the orphaned `mockSimulate` jest.fn() with
+  the actual `simulateContractCall` mock obtained from `jest.mock('../services/stellar')`
+  in all live-call assertions — the old `mockSimulate` was never connected to
+  the route and those tests were silently vacuous. All 42 vesting tests now pass.
+### Tests
+- backend/src/routes/token.test.js: added "returns 400 when amount is zero or
+  negative" test case to `describe('POST /api/token/burn')` (#213). Also
+  added the matching validation guard (`Number(amount) <= 0` → 400) to the
+  `/burn` route in `backend/src/routes/token.js`, since `!amount` only catches
+  falsy values and would have allowed a negative amount through.
 ### Tests
 - contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
   Verifies that `confirm()` panics with `"proposal not pending"` when called on a

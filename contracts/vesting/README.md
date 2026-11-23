@@ -73,7 +73,7 @@ Authorization: beneficiary of the schedule.
 - `VestingError::NothingToClaim` (8) — vested amount equals already-claimed amount
 - `VestingError::ContractIsPaused` (9) — contract is paused
 
-**Events:** `("claimed",)` → `(schedule_id: u64, beneficiary: Address, amount: i128)`
+**Events:** `("claimed",)` → `(schedule_id: u64, beneficiary: Address, amount: i128, claimed_amount: i128, total_amount: i128)`
 
 ---
 
@@ -95,7 +95,7 @@ Authorization: admin.
 - `VestingError::ScheduleNotFound` (6) — schedule ID does not exist
 - `VestingError::ScheduleNotActive` (7) — schedule is already Revoked or Completed
 
-**Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)`
+**Events:** `("revoked",)` → `(schedule_id: u64, token_address: Address, unvested: i128)`
 
 ---
 
@@ -389,7 +389,7 @@ contracts, plus how to filter them with Soroban RPC `getEvents`.
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("created",)` | `(id, beneficiary, total_amount, token_address)` | `create_schedule` |
-| `("claimed",)` | `(schedule_id, beneficiary, amount)` | `claim` |
+| `("claimed",)` | `(schedule_id, beneficiary, amount, claimed_amount, total_amount)` | `claim` |
 | `("revoked",)` | `(schedule_id, unvested)` | `revoke` |
 | `("cancelld",)` | `(schedule_id, total_amount)` | `cancel_schedule` |
 | `("paused",)` | `()` | `pause` |
