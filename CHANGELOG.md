@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed — 2026-10-20
+
+- contracts/vesting/src/lib.rs: `claimed` event now includes `claimed_amount`
+  and `total_amount` fields (#218). The event data tuple changes from
+  `(schedule_id, beneficiary, claimable)` to
+  `(schedule_id, beneficiary, claimable, claimed_amount, total_amount)`.
+  Off-chain indexers can now compute remaining unvested from the event stream
+  alone without a separate `get_schedule` RPC call. Updated
+  `test_event_claimed` to assert the five-field payload with exact values.
+  Updated `contracts/vesting/README.md` events table and `claim()` function
+  docs.
+
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One

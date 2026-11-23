@@ -73,7 +73,7 @@ Authorization: beneficiary of the schedule.
 - `"nothing to claim"` — vested amount equals already-claimed amount
 - `"contract is paused"` — contract is paused
 
-**Events:** `("claimed",)` → `(schedule_id: u64, beneficiary: Address, amount: i128)`
+**Events:** `("claimed",)` → `(schedule_id: u64, beneficiary: Address, amount: i128, claimed_amount: i128, total_amount: i128)`
 
 ---
 
@@ -289,7 +289,7 @@ See [docs/ttl.md](../../docs/ttl.md).
 | Topic | Data | Emitted by |
 |-------|------|-----------|
 | `("created",)` | `(id, beneficiary, total_amount, token_address)` | `create_schedule` |
-| `("claimed",)` | `(schedule_id, beneficiary, amount)` | `claim` |
+| `("claimed",)` | `(schedule_id, beneficiary, amount, claimed_amount, total_amount)` | `claim` |
 | `("revoked",)` | `(schedule_id, unvested)` | `revoke` |
 | `("paused",)` | `()` | `pause` |
 | `("unpaused",)` | `()` | `unpause` |
