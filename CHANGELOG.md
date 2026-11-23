@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed — 2026-10-20
+
+- scripts/deploy.sh: add required constructor arguments for vesting and token
+  contracts (#216). The vesting deploy command was missing `-- --admin "$ADMIN"`,
+  and the token deploy was missing `-- --admin "$ADMIN" --name "..." --symbol
+  "..." --decimals 7 --initial_supply 0`. Without these, the contracts cannot
+  be initialised and all admin calls panic with "not initialized".
+
+  The script now reads `ADMIN` from `.env` or the calling shell and selects the
+  correct constructor-argument list per contract name (`vesting` or `token`).
+  Token name, symbol, and decimals can be overridden via `TOKEN_NAME`,
+  `TOKEN_SYMBOL`, and `TOKEN_DECIMALS` environment variables.
+
+  The WASM path already referenced `wasm32v1-none`; the build step uses
+  `stellar contract build` which selects the correct target automatically.
+
+  Updated README "Quick start" note to reflect that the script now injects
+  constructor args automatically.
+
+
 ### Added — 2026-10-19
 
 - docs/api.md: REST API reference for the backend (#60). One
