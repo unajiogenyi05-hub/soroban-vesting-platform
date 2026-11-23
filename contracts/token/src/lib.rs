@@ -515,8 +515,12 @@ impl TokenContract {
         env.storage()
             .instance()
             .get(&ADMIN)
-            .unwrap_or_else(|| panic_with_error!(env, TokenError::NotInitialized));
-        admin.require_auth();
+            .unwrap_or_else(|| panic_with_error!(env, TokenError::NotInitialized))
+    }
+
+    /// Require the current admin to authorise this call.
+    fn require_admin(env: &Env) {
+        Self::get_admin_address(env).require_auth();
     }
 
     fn require_not_paused(env: &Env) {
@@ -989,7 +993,7 @@ mod tests {
         // Exactly one event must be emitted — the admXfer event.
         // No extra events (e.g. from a future refactor) are allowed.
         assert_eq!(
-            env.events().all().len(),
+            env.events().all().events().len(),
             1,
             "transfer_admin must emit exactly one event (admXfer)"
         );

@@ -1155,6 +1155,7 @@ name = "multisig"
 version = "0.1.0"
 dependencies = [
  "common",
+ "proptest",
  "soroban-sdk",
 ]
 
