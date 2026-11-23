@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Tests
+- backend/src/routes/token.test.js: added "returns 400 when amount is zero or
+  negative" test case to `describe('POST /api/token/burn')` (#213). Also
+  added the matching validation guard (`Number(amount) <= 0` → 400) to the
+  `/burn` route in `backend/src/routes/token.js`, since `!amount` only catches
+  falsy values and would have allowed a negative amount through.
+### Tests
 - contracts/multisig/src/lib.rs: `test_confirm_on_cancelled_proposal_panics` (#228).
   Verifies that `confirm()` panics with `"proposal not pending"` when called on a
   Cancelled proposal. The guard inside `confirm()` covers both Executed and

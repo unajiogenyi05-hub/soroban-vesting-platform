@@ -174,6 +174,7 @@ router.post('/burn', contractIdMiddleware, async (req, res, next) => {
   try {
     const { from, amount } = req.body;
     if (!from || !amount) return res.status(400).json({ error: 'from and amount required' });
+    if (Number(amount) <= 0) return res.status(400).json({ error: 'amount must be positive' });
     if (rejectInvalidAddress(res, 'from', from)) return;
     res.status(202).json({
       success: true,

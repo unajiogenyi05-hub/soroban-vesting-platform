@@ -294,6 +294,20 @@ describe('Token routes', () => {
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty('error');
     });
+
+    it('returns 400 when amount is zero or negative', async () => {
+      const resZero = await request(app)
+        .post('/api/token/burn')
+        .send({ from: 'GABC', amount: 0 });
+      expect(resZero.status).toBe(400);
+      expect(resZero.body).toHaveProperty('error');
+
+      const resNegative = await request(app)
+        .post('/api/token/burn')
+        .send({ from: 'GABC', amount: -100 });
+      expect(resNegative.status).toBe(400);
+      expect(resNegative.body).toHaveProperty('error');
+    });
   });
 
   // ── pause / unpause ─────────────────────────────────────────────────────────
