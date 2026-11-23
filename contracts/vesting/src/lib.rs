@@ -13,8 +13,6 @@
 //! ```
 
 #![no_std]
-#![allow(deprecated)]
-#![allow(clippy::needless_borrows_for_generic_args)]
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, token,
@@ -27,17 +25,13 @@ const ADMIN: Symbol = symbol_short!("ADMIN");
 const PAUSED: Symbol = symbol_short!("PAUSED");
 const SCHED_ID: Symbol = symbol_short!("SCHED_ID");
 
-/// Extend instance and persistent storage to ~180 days (ledgers of ~5 s each).
-/// This equals the network's `max_entry_ttl` (3 110 400 ledgers on both
-/// testnet and mainnet as of protocol 29, per stellar-core soroban-settings).
-/// Values above `max_entry_ttl` are silently clamped by the host, so using
-/// the exact maximum is both correct and maximally protective against archival.
-pub const INSTANCE_BUMP_LEDGERS: u32 = 3_110_400;
-/// Only extend when the remaining TTL drops below ~30 days.
-pub const INSTANCE_BUMP_THRESHOLD: u32 = 518_400;
-/// Persistent Schedule / BeneficiarySchedules entries use the same window.
-pub const PERSISTENT_BUMP_LEDGERS: u32 = 3_110_400;
-pub const PERSISTENT_BUMP_THRESHOLD: u32 = 518_400;
+// ─── TTL constants ────────────────────────────────────────────────────────────
+
+/// Re-exported from `common` — see that crate for the rationale.
+pub use common::{
+    INSTANCE_BUMP_LEDGERS, INSTANCE_BUMP_THRESHOLD, PERSISTENT_BUMP_LEDGERS,
+    PERSISTENT_BUMP_THRESHOLD,
+};
 
 // ─── Error type ─────────────────────────────────────────────────────────────
 
@@ -69,6 +63,10 @@ pub enum VestingError {
     ContractIsPaused = 9,
     /// `batch_create_schedule` was called with an empty params vector.
     BatchEmpty = 10,
+    /// `cancel_schedule` was called after the schedule's `start_time` has
+    /// already been reached (`now >= start_time`). Only pre-start schedules
+    /// may be cancelled.
+    ScheduleNotStarted = 11,
 }
 
 // ─── Data types ────────────────────────────────────────────────────────────
@@ -79,6 +77,7 @@ pub enum ScheduleStatus {
     Active,
     Revoked,
     Completed,
+    Cancelled,
 }
 
 #[contracttype]
@@ -108,6 +107,27 @@ pub struct CreateScheduleParams {
     pub total_duration: u64,
 }
 
+/// Snapshot of a schedule's vesting state at the current ledger timestamp.
+///
+/// All five fields are derived from the stored `VestingSchedule` and the
+/// current ledger time. No write footprint.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct VestingProgress {
+    /// Total tokens locked in the schedule.
+    pub total_amount: i128,
+    /// Tokens that have vested so far (including already claimed).
+    pub vested: i128,
+    /// Tokens already claimed by the beneficiary.
+    pub claimed: i128,
+    /// Tokens that are vested but not yet claimed (claimable right now).
+    pub claimable: i128,
+    /// Tokens that have not yet vested.
+    pub unvested: i128,
+    /// Current schedule status.
+    pub status: ScheduleStatus,
+}
+
 #[contracttype]
 pub enum DataKey {
     Schedule(u64),
@@ -123,6 +143,7 @@ const EVT_PAUSED: Symbol = symbol_short!("paused");
 const EVT_UNPAUSED: Symbol = symbol_short!("unpaused");
 const EVT_ADM_XFER: Symbol = symbol_short!("admXfer");
 const EVT_BEN_XFER: Symbol = symbol_short!("benXfer");
+const EVT_CANCELLED: Symbol = symbol_short!("cancelled");
 
 // ─── Contract ──────────────────────────────────────────────────────────────
 
@@ -198,7 +219,7 @@ impl VestingContract {
         schedule.beneficiary.require_auth();
 
         if schedule.status != ScheduleStatus::Active {
-            panic_with_error!(&env, VestingError::ScheduleNotActive);
+            panic!("schedule is not active");
         }
 
         let now = env.ledger().timestamp();
@@ -242,18 +263,74 @@ impl VestingContract {
     ///
     /// Vested-but-unclaimed tokens are paid to the beneficiary first.
     /// Only the truly unvested portion is returned to `recipient`.
+    /// Revoke an active schedule. Caller must be admin.
+    ///
+    /// Vested-but-unclaimed tokens are paid to the beneficiary first.
+    /// Only the truly unvested portion is returned to `recipient`.
+    ///
+    /// Returns the unvested amount returned to `recipient`.
+    ///
+    /// Authorization: admin.
+    ///
+    /// **Panics:**
+    /// - `"schedule not found"` — schedule ID does not exist
+    /// - `"schedule is not active"` — schedule is already Revoked or Completed
+    ///
+    /// **Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)`
     pub fn revoke(env: Env, schedule_id: u64, recipient: Address) -> i128 {
         Self::bump_instance(&env);
         Self::require_admin(&env);
+        Self::try_revoke(&env, schedule_id, &recipient)
+            .unwrap_or_else(|err| panic_with_error!(&env, err))
+    }
 
+    /// Revoke multiple schedules for a beneficiary in a single transaction.
+    ///
+    /// Requires admin auth once, covering the whole batch. Iterates
+    /// `schedule_ids`, applies the revoke logic to each, and returns the
+    /// unvested amount for each schedule in the same order as the input.
+    ///
+    /// Schedules that are missing or not `Active` are skipped (their unvested
+    /// amount is `0`), so a partial batch still revokes the eligible schedules.
+    ///
+    /// Returns a `Vec<i128>` of unvested amounts, one per input ID.
+    ///
+    /// Authorization: admin.
+    ///
+    /// **Events:** `("revoked",)` → `(schedule_id: u64, unvested: i128)` for
+    /// each schedule that was actually revoked.
+    pub fn batch_revoke(env: Env, schedule_ids: Vec<u64>, recipient: Address) -> Vec<i128> {
+        Self::bump_instance(&env);
+        Self::require_admin(&env);
+
+        let mut unvested_amounts: Vec<i128> = Vec::new(&env);
+        for id in schedule_ids.iter() {
+            let unvested = match Self::try_revoke(&env, id, &recipient) {
+                Ok(amount) => amount,
+                Err(_) => 0, // skip missing or not-active schedules
+            };
+            unvested_amounts.push_back(unvested);
+        }
+        unvested_amounts
+    }
+
+    /// Internal revoke logic shared by `revoke` and `batch_revoke`.
+    ///
+    /// Returns `Ok(unvested)` when the schedule was active and got revoked,
+    /// `Err(ScheduleNotFound)` when it does not exist, or
+    /// `Err(ScheduleNotActive)` when it is already Revoked or Completed.
+    ///
+    /// Does NOT perform auth or instance TTL bump — the caller is responsible
+    /// for those (`revoke` does them per call; `batch_revoke` once per batch).
+    fn try_revoke(env: &Env, schedule_id: u64, recipient: &Address) -> Result<i128, VestingError> {
         let mut schedule: VestingSchedule = env
             .storage()
             .persistent()
             .get(&DataKey::Schedule(schedule_id))
-            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+            .ok_or(VestingError::ScheduleNotFound)?;
 
         if schedule.status != ScheduleStatus::Active {
-            panic_with_error!(&env, VestingError::ScheduleNotActive);
+            return Err(VestingError::ScheduleNotActive);
         }
 
         let now = env.ledger().timestamp();
@@ -280,7 +357,7 @@ impl VestingContract {
         // ── Interactions: token transfers happen after state is finalised ──
         // Pay any vested-but-unclaimed tokens to the beneficiary.
         if unclaimed_vested > 0 {
-            let tk = token::Client::new(&env, &schedule.token);
+            let tk = token::Client::new(env, &schedule.token);
             tk.transfer(
                 &env.current_contract_address(),
                 &schedule.beneficiary,
@@ -290,20 +367,83 @@ impl VestingContract {
 
         // Return the unvested portion to the recipient (typically treasury).
         if unvested > 0 {
-            let tk = token::Client::new(&env, &schedule.token);
-            tk.transfer(&env.current_contract_address(), &recipient, &unvested);
+            let tk = token::Client::new(env, &schedule.token);
+            tk.transfer(&env.current_contract_address(), recipient, &unvested);
         }
 
         env.events()
             .publish((EVT_REVOKED,), (schedule_id, unvested));
 
-        unvested
+        Ok(unvested)
+    }
+
+    /// Cancel a vesting schedule that has not yet started.
+    ///
+    /// The full `total_amount` is returned to `recipient`. The schedule status
+    /// is set to `Cancelled`. Only schedules that have not yet started
+    /// (`now < start_time`) may be cancelled; use `revoke` for in-progress
+    /// schedules.
+    ///
+    /// Follows the checks-effects-interactions (CEI) pattern:
+    /// 1. Load schedule and validate (check)
+    /// 2. Update status to `Cancelled` and persist (effect)
+    /// 3. Transfer tokens and emit event (interaction)
+    ///
+    /// Returns `total_amount`.
+    ///
+    /// Authorization: admin.
+    ///
+    /// # Panics
+    /// - `VestingError::ScheduleNotFound` — no schedule with the given ID
+    /// - `VestingError::ScheduleNotActive` — schedule is not `Active`
+    /// - `VestingError::ScheduleNotStarted` — `now >= start_time` (schedule has already started; use `revoke` instead)
+    pub fn cancel_schedule(env: Env, schedule_id: u64, recipient: Address) -> i128 {
+        Self::bump_instance(&env);
+        Self::require_admin(&env);
+
+        let mut schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+
+        if schedule.status != ScheduleStatus::Active {
+            panic_with_error!(&env, VestingError::ScheduleNotActive);
+        }
+
+        let now = env.ledger().timestamp();
+        if now >= schedule.start_time {
+            panic_with_error!(&env, VestingError::ScheduleNotStarted);
+        }
+
+        // ── Effect: mark cancelled before any external calls (CEI) ──
+        schedule.status = ScheduleStatus::Cancelled;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Schedule(schedule_id), &schedule);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Schedule(schedule_id),
+            PERSISTENT_BUMP_THRESHOLD,
+            PERSISTENT_BUMP_LEDGERS,
+        );
+
+        // ── Interaction: refund tokens and emit event ──
+        let tk = token::Client::new(&env, &schedule.token);
+        tk.transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &schedule.total_amount,
+        );
+
+        env.events()
+            .publish((EVT_CANCELLED,), (schedule_id, schedule.total_amount));
+
+        schedule.total_amount
     }
 
     // ── Pause ────────────────────────────────────────────────────────────
 
     pub fn pause(env: Env) {
-        Self::bump_instance(&env);
         Self::require_admin(&env);
         env.storage().instance().set(&PAUSED, &true);
         env.events().publish((EVT_PAUSED,), ());
@@ -489,19 +629,151 @@ impl VestingContract {
         total
     }
 
+    /// Return the total claimable (vested-but-unclaimed) amount across all of
+    /// `beneficiary`'s Active schedules.
+    ///
+    /// Computed as the sum of `get_claimable(id)` over the beneficiary's
+    /// schedule IDs. Revoked and Completed schedules contribute 0 (their
+    /// vested-minus-claimed is 0), so only Active schedules effectively count.
+    /// Returns 0 when the beneficiary has no schedules.
+    ///
+    /// Read-only: does **not** extend any TTL.
+    pub fn total_claimable_for_beneficiary(env: Env, beneficiary: Address) -> i128 {
+        let ids: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::BeneficiarySchedules(beneficiary))
+            .unwrap_or(Vec::new(&env));
+        let now = env.ledger().timestamp();
+        let mut total: i128 = 0;
+        for id in ids.iter() {
+            let Some(schedule) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, VestingSchedule>(&DataKey::Schedule(id))
+            else {
+                continue;
+            };
+            if schedule.status == ScheduleStatus::Active {
+                let vested = Self::vested_amount(&schedule, now);
+                let claimable = (vested - schedule.claimed_amount).max(0);
+                total = total.saturating_add(claimable);
+            }
+        }
+        total
+    }
+
     pub fn get_admin(env: Env) -> Address {
-        env.storage()
+        Self::get_admin_address(&env)
+    }
+
+    /// Return `true` if `address` is the current admin, `false` otherwise.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn is_admin(env: Env, address: Address) -> bool {
+        let admin: Address = env
+            .storage()
             .instance()
             .get(&ADMIN)
-            .expect("not initialized")
+            .expect("not initialized");
+        admin == address
     }
 
     pub fn is_paused(env: Env) -> bool {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
+    /// Return `true` if there are vested-but-unclaimed tokens for the given
+    /// schedule at the current ledger timestamp, `false` otherwise.
+    ///
+    /// Returns `false` if the schedule is not `Active` (Revoked or Completed).
+    /// Read-only — does not extend TTL or write any storage.
+    ///
+    /// **Panics:** `"schedule not found"` — schedule ID does not exist.
+    pub fn is_claimable(env: Env, schedule_id: u64) -> bool {
+        let schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+        if schedule.status != ScheduleStatus::Active {
+            return false;
+        }
+        let now = env.ledger().timestamp();
+        Self::vested_amount(&schedule, now) > schedule.claimed_amount
+    }
+
     pub fn schedule_count(env: Env) -> u64 {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
+    }
+
+    /// Return the number of schedules whose status is `Active`.
+    ///
+    /// Scans all schedule IDs from `1` to `schedule_count()` and counts those
+    /// whose `status == ScheduleStatus::Active`.
+    ///
+    /// # Complexity
+    /// O(n) over all schedules ever created.  For deployments with large numbers
+    /// of historical (revoked/completed) schedules, prefer off-chain indexing or
+    /// iterating `get_schedules_paginated` instead of calling this repeatedly
+    /// in a hot path.
+    ///
+    /// # Write footprint
+    /// None — does not extend any TTL.
+    ///
+    /// # Auth
+    /// None.
+    pub fn get_active_schedule_count(env: Env) -> u64 {
+        let total: u64 = env.storage().instance().get(&SCHED_ID).unwrap_or(0);
+        let mut count = 0u64;
+        for id in 1..=total {
+            if let Some(s) = env
+                .storage()
+                .persistent()
+                .get::<DataKey, VestingSchedule>(&DataKey::Schedule(id))
+            {
+                if s.status == ScheduleStatus::Active {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// Return a page of schedules ordered by ID ascending.
+    ///
+    /// `offset` is the number of schedules to skip (0-based). `limit` is the
+    /// maximum number of schedules to return. Only schedules that exist in
+    /// storage are included, so gaps (e.g. IDs never assigned) are skipped.
+    ///
+    /// This is a read-only view: it does not extend any TTL and has no write
+    /// footprint, making it safe to call repeatedly for large deployments
+    /// without incurring rent on every page.
+    ///
+    /// # Arguments
+    /// - `offset` — number of schedules to skip before collecting results.
+    /// - `limit` — maximum number of schedules to return.
+    ///
+    /// # Returns
+    /// A `Vec<VestingSchedule>` containing at most `limit` schedules, starting
+    /// after `offset`. Empty when `offset >= total`.
+    pub fn get_schedules_paginated(env: Env, offset: u64, limit: u64) -> Vec<VestingSchedule> {
+        let total: u64 = env.storage().instance().get(&SCHED_ID).unwrap_or(0);
+        let start = offset.saturating_add(1); // schedule IDs start at 1
+        let end = offset.saturating_add(limit).min(total);
+        let mut result = Vec::new(&env);
+        if start <= end {
+            for id in start..=end {
+                if let Some(schedule) = env
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, VestingSchedule>(&DataKey::Schedule(id))
+                {
+                    result.push_back(schedule);
+                }
+            }
+        }
+        result
     }
 
     /// Return the amount that is still unvested (what would be returned to
@@ -681,13 +953,15 @@ impl VestingContract {
             .extend_ttl(INSTANCE_BUMP_THRESHOLD, INSTANCE_BUMP_LEDGERS);
     }
 
-    fn require_admin(env: &Env) {
-        let admin: Address = env
-            .storage()
+    fn get_admin_address(env: &Env) -> Address {
+        env.storage()
             .instance()
             .get(&ADMIN)
-            .expect("not initialized");
-        admin.require_auth();
+            .expect("not initialized")
+    }
+
+    fn require_admin(env: &Env) {
+        Self::get_admin_address(env).require_auth();
     }
 
     fn require_not_paused(env: &Env) {
@@ -1105,6 +1379,80 @@ mod tests {
         assert_eq!(sched.status, ScheduleStatus::Revoked);
     }
 
+    // ── revoke after schedule has fully vested ───────────────────────────────
+    //
+    // When revoke() is called after total_duration has elapsed, all tokens are
+    // already vested. The unvested portion is 0, so nothing is returned to the
+    // recipient. The beneficiary receives all unclaimed vested tokens (the full
+    // total_amount since no prior claims were made).
+    //
+    // Schedule: cliff_duration=0, total_duration=100, total_amount=100_000
+    // Revoke at t = start + 200 (past end):
+    //   - vested = total_amount = 100_000
+    //   - unvested = 0
+    //   - unclaimed_vested = total_amount - 0 = 100_000
+    //
+    // Expected:
+    //   - return value == 0 (no unvested tokens)
+    //   - beneficiary balance == 100_000 (all vested, paid on revoke)
+    //   - recipient balance == 0
+    //   - schedule.status == ScheduleStatus::Revoked
+    #[test]
+    fn test_revoke_after_full_vest() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance ledger to start + 200 (past end of schedule)
+        env.ledger().with_mut(|l| l.timestamp = start + 200);
+
+        // All tokens are vested; revoke should return 0 unvested
+        let returned = vesting.revoke(&id, &recipient);
+        assert_eq!(returned, 0, "revoke after full vest must return 0 unvested");
+
+        // Beneficiary receives the full amount (all vested, none previously claimed)
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            100_000,
+            "beneficiary must receive full total_amount when all tokens are vested"
+        );
+
+        // Recipient receives nothing (no unvested tokens)
+        assert_eq!(
+            token_client.balance(&recipient),
+            0,
+            "recipient must receive 0 when there are no unvested tokens"
+        );
+
+        // Schedule is marked Revoked
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(
+            sched.status,
+            ScheduleStatus::Revoked,
+            "schedule status must be Revoked after revoke()"
+        );
+
+        // Vesting contract holds nothing
+        assert_eq!(
+            token_client.balance(&vesting_id),
+            0,
+            "vesting contract must hold 0 tokens after revoke"
+        );
+    }
+
     // ── revoke before cliff: 0 vested, 100% returned to recipient ────────────
 
     /// When revoke() is called before the cliff period has elapsed, zero tokens
@@ -1175,6 +1523,76 @@ mod tests {
         );
     }
 
+    // ── revoke exactly at full vest: unvested == 0, all to beneficiary ────────
+
+    /// When revoke() is called exactly when the schedule is fully vested
+    /// (now >= start_time + total_duration), `vested_amount()` equals
+    /// `total_amount`, so unvested == 0 and the entire amount — still held by
+    /// the contract as unclaimed vested tokens — is paid to the beneficiary.
+    ///
+    /// Schedule: total_duration=100, total_amount=100_000, no cliff.
+    /// Revoke at t = start + 100 (exactly fully vested, nothing claimed yet).
+    ///
+    /// Expected:
+    ///   - return value == 0 (unvested)
+    ///   - beneficiary balance == 100_000
+    ///   - recipient (treasury) balance == 0
+    ///   - contract balance == 0
+    ///   - schedule.status == ScheduleStatus::Revoked
+    #[test]
+    fn test_revoke_after_full_vest_sends_all_to_beneficiary() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env); // treasury / unvested-token recipient
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance to exactly start + 100 — fully vested, nothing claimed yet.
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+
+        // Everything is vested and unclaimed; nothing is unvested.
+        assert_eq!(vesting.get_claimable(&id), 100_000);
+        assert_eq!(vesting.get_unvested_amount(&id), 0);
+
+        let returned = vesting.revoke(&id, &recipient);
+
+        // Unvested portion returned to the caller is zero.
+        assert_eq!(returned, 0, "unvested must be 0 at full vest");
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+
+        // Beneficiary received the entire amount (unclaimed vested tokens).
+        assert_eq!(
+            token_client.balance(&beneficiary),
+            100_000,
+            "beneficiary should receive the full total_amount at full vest"
+        );
+
+        // Recipient (treasury) received nothing — there was nothing unvested.
+        assert_eq!(
+            token_client.balance(&recipient),
+            0,
+            "recipient should receive 0 tokens at full vest"
+        );
+
+        // The contract holds no residual tokens.
+        assert_eq!(token_client.balance(&vesting_id), 0);
+
+        // Schedule is marked Revoked, not Completed.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Revoked);
+    }
+
     // ── claim after revoke must error with ScheduleNotActive ─────────────────
 
     #[test]
@@ -1199,6 +1617,56 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         vesting.revoke(&id, &admin);
         vesting.claim(&id); // must panic with VestingError::ScheduleNotActive
+    }
+
+    // ── claim on a completed schedule must error with "schedule is not active"
+
+    /// After the beneficiary claims the final tranche of a vesting schedule,
+    /// the schedule status transitions to Completed. A subsequent call to
+    /// claim() on that schedule must panic with "schedule is not active".
+    ///
+    /// Schedule: cliff_duration=0, total_duration=100, total_amount=100_000
+    /// 1. Advance to start + 100 (fully vested).
+    /// 2. First claim() returns 100_000 — schedule transitions to Completed.
+    /// 3. Second claim() must panic with "schedule is not active".
+    #[test]
+    #[should_panic(expected = "schedule is not active")]
+    fn test_claim_on_completed_schedule_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Advance past full duration so all tokens are claimable.
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+
+        // First claim succeeds and returns the full total_amount.
+        let first_claim = vesting.claim(&id);
+        assert_eq!(
+            first_claim, 100_000,
+            "first claim must return the full total_amount"
+        );
+
+        // Schedule is now Completed.
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(
+            sched.status,
+            ScheduleStatus::Completed,
+            "schedule must be Completed after claiming all tokens"
+        );
+
+        // Second claim on a Completed schedule must panic with "schedule is not active".
+        vesting.claim(&id);
     }
 
     // ── nothing to claim before cliff ────────────────────────────────────────
@@ -1440,6 +1908,53 @@ mod tests {
         assert_eq!(id, 1);
     }
 
+    /// After transfer_admin, the old admin cannot call create_schedule.
+    ///
+    /// transfer_admin() stores new_admin in instance storage. require_admin()
+    /// then reads that value and calls require_auth() on it. The old admin's
+    /// auth can no longer satisfy that requirement so create_schedule must panic.
+    ///
+    /// This test reproduces the scenario with MockAuth so only the old admin's
+    /// auth is provided; the new admin's auth is intentionally absent.
+    #[test]
+    #[should_panic]
+    fn test_transfer_admin_old_admin_loses_create_schedule() {
+        use soroban_sdk::testutils::{MockAuth, MockAuthInvoke};
+        use soroban_sdk::IntoVal;
+
+        let (env, vesting_id, old_admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let new_admin = Address::generate(&env);
+
+        // Transfer admin: new_admin is now the admin, old_admin is not.
+        vesting.transfer_admin(&new_admin);
+        assert_eq!(vesting.get_admin(), new_admin);
+
+        let params = CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: env.ledger().timestamp(),
+            cliff_duration: 0,
+            total_duration: 100,
+        };
+
+        // Provide only the old admin's auth — new_admin auth is absent.
+        // require_admin() now checks new_admin, so this call must panic.
+        env.mock_auths(&[MockAuth {
+            address: &old_admin,
+            invoke: &MockAuthInvoke {
+                contract: &vesting_id,
+                fn_name: "create_schedule",
+                args: (params.clone(),).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        vesting.create_schedule(&params);
+    }
+
     // ── schedule_count increments ────────────────────────────────────────────
 
     #[test]
@@ -1473,6 +1988,158 @@ mod tests {
             total_duration: 100,
         });
         assert_eq!(vesting.schedule_count(), 2);
+    }
+
+    // ── get_schedules_paginated returns pages of schedules ───────────────────
+
+    #[test]
+    fn test_get_schedules_paginated_first_page() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id3 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        assert_eq!([id1, id2, id3], [1, 2, 3]);
+
+        // First page: offset 0, limit 2 → schedules 1 and 2.
+        let page1 = vesting.get_schedules_paginated(&0u64, &2u64);
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page1.get(0).unwrap().id, 1);
+        assert_eq!(page1.get(1).unwrap().id, 2);
+    }
+
+    #[test]
+    fn test_get_schedules_paginated_offset() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        for _ in 0..3 {
+            vesting.create_schedule(&CreateScheduleParams {
+                from: funder.clone(),
+                beneficiary: beneficiary.clone(),
+                token_address: token.clone(),
+                total_amount: 100_000,
+                start_time: start,
+                cliff_duration: 0,
+                total_duration: 100,
+            });
+        }
+
+        // Second page: offset 2, limit 2 → schedule 3 only.
+        let page2 = vesting.get_schedules_paginated(&2u64, &2u64);
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2.get(0).unwrap().id, 3);
+
+        // Offset beyond total → empty.
+        let page3 = vesting.get_schedules_paginated(&10u64, &5u64);
+        assert_eq!(page3.len(), 0);
+
+        // Limit larger than total → all three.
+        let all = vesting.get_schedules_paginated(&0u64, &100u64);
+        assert_eq!(all.len(), 3);
+    }
+
+    // ── get_active_schedule_count ─────────────────────────────────────────────
+
+    /// Returns 0 when no schedules have been created.
+    #[test]
+    fn test_active_schedule_count_empty() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        assert_eq!(vesting.get_active_schedule_count(), 0);
+    }
+
+    /// Returns the correct count after creates, a revoke, and a completed claim.
+    ///
+    /// Creates three schedules, revokes one, completes another via full claim,
+    /// and verifies that only the remaining Active schedule is counted.
+    #[test]
+    fn test_active_schedule_count_mixed_statuses() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+        let recipient = Address::generate(&env);
+
+        // Create three Active schedules.
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id3 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // All three are Active.
+        assert_eq!(vesting.get_active_schedule_count(), 3);
+        // schedule_count still counts all three (total ever created).
+        assert_eq!(vesting.schedule_count(), 3);
+
+        // Revoke id1 → Revoked; active count drops to 2.
+        vesting.revoke(&id1, &recipient);
+        assert_eq!(vesting.get_active_schedule_count(), 2);
+
+        // Advance past the end, claim id2 fully → Completed; active count drops to 1.
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        vesting.claim(&id2);
+        assert_eq!(vesting.get_active_schedule_count(), 1);
+
+        // id3 is still Active.
+        assert_eq!(vesting.get_schedule(&id3).status, ScheduleStatus::Active);
+        assert_eq!(vesting.get_active_schedule_count(), 1);
+
+        // schedule_count is unchanged — still 3 (total ever created).
+        assert_eq!(vesting.schedule_count(), 3);
     }
 
     // ── multiple beneficiaries have independent schedules ────────────────────
@@ -1518,6 +2185,22 @@ mod tests {
         let ids2 = vesting.get_beneficiary_schedules(&b2);
         assert_eq!(ids2.len(), 1);
         assert_eq!(ids2.get(0).unwrap(), id2);
+    }
+
+    // ── get_beneficiary_schedules() unknown address returns empty ─────────────
+
+    /// get_beneficiary_schedules() uses `unwrap_or(Vec::new(&env))` for
+    /// addresses that have never been assigned a schedule.  This test pins
+    /// that fallback: a fresh address with no schedules must return an empty
+    /// Vec, not a panic.  A storage key change or removal of the `unwrap_or`
+    /// would break this immediately.
+    #[test]
+    fn test_get_beneficiary_schedules_unknown_returns_empty() {
+        let (env, vesting_id, _admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let stranger = Address::generate(&env);
+        let ids = vesting.get_beneficiary_schedules(&stranger);
+        assert_eq!(ids.len(), 0);
     }
 
     // ── beneficiary_schedules accumulates multiple schedules ─────────────────
@@ -1654,6 +2337,22 @@ mod tests {
         assert_eq!(vesting.get_claimed_by_beneficiary(&beneficiary), 300_000);
     }
 
+    // ── revoke on a non-existent schedule ID must panic ──────────────────────
+    //
+    // revoke() calls try_revoke() which returns Err(VestingError::ScheduleNotFound)
+    // when the schedule ID does not exist in persistent storage. revoke() then
+    // calls panic_with_error! with that error, which should panic.
+    // This test ensures the guard is exercised (previously untested).
+
+    #[test]
+    #[should_panic]
+    fn test_revoke_nonexistent_schedule_panics() {
+        let (env, vesting_id, admin, _b, _f) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        // Schedule ID 999 was never created — must panic with ScheduleNotFound.
+        vesting.revoke(&999u64, &admin);
+    }
+
     // ── double-revoke must error with ScheduleNotActive ───────────────────────
 
     #[test]
@@ -1676,6 +2375,82 @@ mod tests {
 
         vesting.revoke(&id, &admin);
         vesting.revoke(&id, &admin); // must panic with VestingError::ScheduleNotActive
+    }
+
+    // ── batch_revoke revokes multiple schedules in one transaction ───────────
+
+    #[test]
+    fn test_batch_revoke_all_active() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let mut ids: Vec<u64> = Vec::new(&env);
+        for _ in 0..3 {
+            ids.push_back(vesting.create_schedule(&CreateScheduleParams {
+                from: funder.clone(),
+                beneficiary: beneficiary.clone(),
+                token_address: token.clone(),
+                total_amount: 100_000,
+                start_time: start,
+                cliff_duration: 0,
+                total_duration: 100,
+            }));
+        }
+
+        // At t=30 each schedule has 30 000 vested and 70 000 unvested.
+        env.ledger().with_mut(|l| l.timestamp = start + 30);
+
+        let returned = vesting.batch_revoke(&ids, &treasury);
+        assert_eq!(returned, soroban_sdk::vec![&env, 70_000, 70_000, 70_000]);
+
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(token_client.balance(&treasury), 210_000);
+        for id in ids.iter() {
+            assert_eq!(vesting.get_schedule(&id).status, ScheduleStatus::Revoked);
+        }
+    }
+
+    #[test]
+    fn test_batch_revoke_partial() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let treasury = Address::generate(&env);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        // id2 is already revoked, id3 (999) does not exist — both must be
+        // skipped without failing the whole batch.
+        vesting.revoke(&id2, &treasury);
+
+        env.ledger().with_mut(|l| l.timestamp = start + 30);
+
+        // [id1(active), id2(revoked), 999(missing)] → [70_000, 0, 0].
+        let returned = vesting.batch_revoke(&soroban_sdk::vec![&env, id1, id2, 999u64], &treasury);
+        assert_eq!(returned, soroban_sdk::vec![&env, 70_000, 0, 0]);
+
+        assert_eq!(vesting.get_schedule(&id1).status, ScheduleStatus::Revoked);
+        assert_eq!(vesting.get_schedule(&id2).status, ScheduleStatus::Revoked);
     }
 
     // ── E3: revoke() state is finalised before token transfers (CEI) ─────────
@@ -2913,6 +3688,264 @@ mod tests {
         let vesting = VestingContractClient::new(&env, &vesting_id);
         vesting.time_until_fully_vested(&999u64);
     }
+
+    // ── total_claimable_for_beneficiary ──────────────────────────────────────
+
+    /// Multiple active schedules: aggregate equals sum of individual claimables.
+    #[test]
+    fn test_total_claimable_for_beneficiary_multiple_active() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        // Mint enough for two schedules.
+        let token = new_token(&env, &funder, 200_000);
+        let start = env.ledger().timestamp();
+
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+
+        let c1 = vesting.get_claimable(&id1);
+        let c2 = vesting.get_claimable(&id2);
+        let total = vesting.total_claimable_for_beneficiary(&beneficiary);
+        assert_eq!(total, c1 + c2);
+        assert_eq!(total, 100_000); // 50% of 200_000
+    }
+
+    /// Mix of Active / Revoked / Completed schedules: only Active ones count.
+    #[test]
+    fn test_total_claimable_excludes_revoked_and_completed() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 300_000);
+        let start = env.ledger().timestamp();
+
+        // Schedule 1 — will be revoked
+        let id1 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // Schedule 2 — will be completed (fully claimed)
+        let id2 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 50,
+        });
+
+        // Schedule 3 — stays active
+        let id3 = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 200,
+        });
+
+        // Advance past schedule 2's total_duration so it can be fully claimed.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+
+        // Revoke schedule 1 (at t=50 → 50k vested goes to beneficiary, 50k returned to admin).
+        vesting.revoke(&id1, &admin);
+
+        // Fully claim schedule 2 (50/50 → 100% vested = 100_000; marks Completed).
+        vesting.claim(&id2);
+        let s2 = vesting.get_schedule(&id2);
+        assert_eq!(s2.status, ScheduleStatus::Completed);
+
+        // Now only schedule 3 (Active) has claimable tokens.
+        let total = vesting.total_claimable_for_beneficiary(&beneficiary);
+        let expected = vesting.get_claimable(&id3);
+        assert_eq!(total, expected);
+
+        // Revoked and completed schedules must not contribute.
+        let _ = id1;
+    }
+
+    /// Beneficiary with no schedules returns 0.
+    #[test]
+    fn test_total_claimable_no_schedules_returns_zero() {
+        let (env, vesting_id, _admin, _beneficiary, _funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let stranger = Address::generate(&env);
+        assert_eq!(vesting.total_claimable_for_beneficiary(&stranger), 0);
+    }
+
+    /// Before cliff: nothing is claimable even with active schedules.
+    #[test]
+    fn test_total_claimable_before_cliff_is_zero() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 100_000);
+        let start = env.ledger().timestamp();
+
+        vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 100,
+            total_duration: 200,
+        });
+
+        // Before cliff: total claimable must be 0.
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        assert_eq!(vesting.total_claimable_for_beneficiary(&beneficiary), 0);
+    }
+
+    /// After partial claim, aggregate reflects the remaining claimable amount.
+    #[test]
+    fn test_total_claimable_after_partial_claim() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let token = new_token(&env, &funder, 100_000);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        // Claim half.
+        vesting.claim(&id);
+
+        // Advance to 75%: should now show 25_000 claimable (75k vested - 50k claimed).
+        env.ledger().with_mut(|l| l.timestamp = start + 75);
+        let total = vesting.total_claimable_for_beneficiary(&beneficiary);
+        assert_eq!(total, 25_000);
+    }
+
+    // ── cancel_schedule tests (#282) ─────────────────────────────────────────
+
+    /// Success case: cancel a schedule whose start_time is in the future.
+    /// Return value == total_amount, status becomes Cancelled, recipient
+    /// receives all tokens.
+    #[test]
+    fn test_cancel_schedule_success() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+
+        // start_time is 1000 seconds in the future
+        let future_start = env.ledger().timestamp() + 1000;
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: future_start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        let returned = vesting.cancel_schedule(&id, &recipient);
+
+        // Return value must equal total_amount
+        assert_eq!(returned, 100_000);
+
+        // Schedule status must be Cancelled
+        let sched = vesting.get_schedule(&id);
+        assert_eq!(sched.status, ScheduleStatus::Cancelled);
+
+        // Recipient must have received all the tokens
+        let tk = soroban_sdk::token::Client::new(&env, &token);
+        assert_eq!(tk.balance(&recipient), 100_000);
+
+        // Vesting contract holds nothing
+        assert_eq!(tk.balance(&vesting_id), 0);
+    }
+
+    /// Panics when the schedule's start_time has already been reached
+    /// (now >= start_time).
+    #[test]
+    #[should_panic]
+    fn test_cancel_schedule_already_started_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+
+        // start_time == now: the schedule is considered started immediately
+        let start_now = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: start_now,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // now == start_time → should panic with VestingError::ScheduleNotStarted
+        vesting.cancel_schedule(&id, &recipient);
+    }
+
+    /// Panics when trying to cancel a schedule that was already cancelled
+    /// (status != Active → ScheduleNotActive).
+    #[test]
+    #[should_panic]
+    fn test_cancel_already_cancelled_panics() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let recipient = Address::generate(&env);
+
+        let future_start = env.ledger().timestamp() + 1000;
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token.clone(),
+            total_amount: 100_000,
+            start_time: future_start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        // First cancel succeeds
+        vesting.cancel_schedule(&id, &recipient);
+
+        // Second cancel must panic with VestingError::ScheduleNotActive
+        vesting.cancel_schedule(&id, &recipient);
+    }
 }
 
 // ─── Task C: end-to-end tests using the real token contract ──────────────────
@@ -3413,6 +4446,59 @@ mod prop_tests {
             let sched = dummy(total_amount, start_time, 0, total_duration);
             let v = VestingContract::vested_amount(&sched, t);
             prop_assert_eq!(v, total_amount, "expected total={} at t={} (end={})", total_amount, t, end);
+        }
+
+        /// P5: claim then revoke conserves total_amount.
+        ///
+        /// For any valid schedule with a claim at t1 followed by a revoke at
+        /// t2 (clamped so t2 >= t1), the tokens received by both parties must
+        /// sum to total_amount:
+        ///
+        ///   claimed(t1) + revoke_return(t2) == total_amount
+        ///
+        /// where:
+        ///   claimed(t1)       = vested(t1)              (first claim gets all vested)
+        ///   revoke_return(t2) = total_amount - vested(t2)  (unvested at revoke time)
+        ///
+        /// This holds because revoke() pays the vested-but-unclaimed portion
+        /// (vested(t2) - claimed(t1)) to the beneficiary, plus claimed(t1) was
+        /// already paid, so the beneficiary receives vested(t2) in total and
+        /// the recipient receives total_amount - vested(t2).  Together they
+        /// equal total_amount.
+        #[test]
+        fn prop_claim_then_revoke_conserves_total(
+            total    in 1i128..=1_000_000i128,
+            duration in 1u64..=1_000u64,
+            t1       in 0u64..=1_000u64,
+            t2       in 0u64..=1_000u64,
+        ) {
+            // Clamp t2 so it is >= t1 (revoke cannot happen before claim).
+            let t2 = t1.max(t2);
+
+            let sched = dummy(total, 0, 0, duration);
+
+            // Amount the beneficiary claims at t1 (all vested-but-unclaimed).
+            let claimed = VestingContract::vested_amount(&sched, t1);
+
+            // After the claim, claimed_amount == claimed.  At t2 >= t1 the
+            // vested amount is >= claimed (vested is non-decreasing).
+            // revoke() returns total_amount - vested(t2) to the recipient, and
+            // pays the difference (vested(t2) - claimed) to the beneficiary.
+            let vested_at_revoke = VestingContract::vested_amount(&sched, t2);
+            let revoke_return = total - vested_at_revoke;
+
+            // Total flowing out of the contract == beneficiary receipts + recipient receipt.
+            // beneficiary receives: claimed (at t1) + (vested_at_revoke - claimed) (at revoke)
+            //                     = vested_at_revoke
+            // recipient receives:   revoke_return = total - vested_at_revoke
+            // sum:                  vested_at_revoke + (total - vested_at_revoke) == total
+            let conservation = claimed + (vested_at_revoke - claimed) + revoke_return;
+            prop_assert_eq!(
+                conservation, total,
+                "token conservation violated: claimed={} vested_at_revoke={} \
+                 revoke_return={} total={} t1={} t2={} duration={}",
+                claimed, vested_at_revoke, revoke_return, total, t1, t2, duration
+            );
         }
     }
 }

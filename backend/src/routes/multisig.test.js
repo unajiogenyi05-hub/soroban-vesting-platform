@@ -1,6 +1,7 @@
 'use strict';
 
 const request = require('supertest');
+const { simulateContractCall } = require('../services/stellar');
 
 const VALID_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 
@@ -14,6 +15,8 @@ jest.mock('../services/stellar', () => ({
 process.env.MULTISIG_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
 
 const app = require('../index');
+
+const MULTISIG_CONTRACT_ID = 'CTEST0000000000000000000000000000000000000000000000000000';
 
 describe('Multisig routes', () => {
   describe('POST /api/multisig/proposal', () => {
@@ -79,9 +82,10 @@ describe('Multisig routes', () => {
       expect(res.status).toBe(202);
     });
 
-    it('returns 400 when proposalId missing', async () => {
+    it('returns 400 when proposalId is missing', async () => {
       const res = await request(app).post('/api/multisig/execute').send({});
       expect(res.status).toBe(400);
+      expect(res.body.error).toBeDefined();
     });
   });
 
@@ -112,6 +116,14 @@ describe('Multisig routes', () => {
       const res = await request(app).get('/api/multisig/threshold');
       expect(res.status).toBe(200);
       expect(res.body.data).toHaveProperty('threshold');
+    });
+  });
+
+  describe('GET /api/multisig/count', () => {
+    it('returns count', async () => {
+      const res = await request(app).get('/api/multisig/count');
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveProperty('count');
     });
   });
 

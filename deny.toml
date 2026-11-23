@@ -1,0 +1,65 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Run: cargo deny check
+# CI:  see .github/workflows/ci.yml contracts job
+
+[graph]
+# Only check dependencies for the host target used in CI.
+# The wasm32v1-none target has no std and no OS dependencies;
+# the meaningful supply-chain surface is the host-side tooling.
+targets = []
+
+# ── Advisories ──────────────────────────────────────────────────────────────
+# Check for crates with known security vulnerabilities (RustSec advisory DB).
+[advisories]
+# Deny crates with unpatched vulnerabilities.
+version = 2
+yanked = "deny"
+
+# ── Licenses ────────────────────────────────────────────────────────────────
+[licenses]
+version = 2
+
+# Allow MIT and Apache-2.0 (the two licenses used by the Stellar/Soroban
+# ecosystem).  Unicode-DFS-2016 is used by the `unicode-ident` crate which
+# is a transitive dependency of proc-macro crates; it is a permissive,
+# non-copyleft license.  ISC is used by some cryptographic crates and is
+# functionally equivalent to MIT.  BSD-2-Clause and BSD-3-Clause are
+# permissive and appear in a few transitive dependencies.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "Unicode-DFS-2016",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "CC0-1.0",
+]
+
+# Treat unlicensed crates as an error.
+unlicensed = "deny"
+
+# Deny copyleft licenses unless explicitly allowed above.
+copyleft = "deny"
+
+# Warn on OSI/FSF-approved licenses not in the allow list (rather than deny),
+# so new permissive licenses surface for review without breaking the build.
+allow-osi-fsf-free = "neither"
+default = "deny"
+
+# ── Bans ────────────────────────────────────────────────────────────────────
+[bans]
+# Warn on duplicate versions of the same crate (common with large dependency
+# trees like Stellar's).  Use "deny" in a production project once the tree is
+# clean.
+multiple-versions = "warn"
+
+# ── Sources ─────────────────────────────────────────────────────────────────
+[sources]
+# Only allow crates from crates.io and git sources explicitly listed below.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
