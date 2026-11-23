@@ -7,13 +7,22 @@
  * All functions return { success, data } or throw with a descriptive message.
  */
 
-const { SorobanRpc, Keypair, Networks, TransactionBuilder, BASE_FEE } = require('@stellar/stellar-sdk');
+const { SorobanRpc, Networks, TransactionBuilder, BASE_FEE, StrKey } = require('@stellar/stellar-sdk');
 
 const NETWORK_PASSPHRASE = process.env.STELLAR_NETWORK === 'mainnet'
   ? Networks.PUBLIC
   : Networks.TESTNET;
 
 const RPC_URL = process.env.STELLAR_RPC_URL || 'https://soroban-testnet.stellar.org';
+
+/**
+ * Validate a Stellar Ed25519 public key (56-character G… string).
+ * @param {string} addr
+ * @returns {boolean}
+ */
+function validateStellarAddress(addr) {
+  return typeof addr === 'string' && StrKey.isValidEd25519PublicKey(addr);
+}
 
 /**
  * Build a Soroban RPC server instance.
@@ -86,6 +95,7 @@ module.exports = {
   loadAccount,
   submitTransaction,
   simulateContractCall,
+  validateStellarAddress,
   NETWORK_PASSPHRASE,
   RPC_URL,
 };
