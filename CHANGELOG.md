@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-17
+
+- contracts/vesting: `is_admin(env, address: Address) -> bool` (#221). Pure
+  read-only predicate that returns `true` when `address` equals the current
+  admin. Matches the `is_owner()` pattern in the multisig contract. No write
+  footprint. New tests: `test_is_admin` (true for admin, false for non-admin).
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Rounding behavior" section (#96). Documents
