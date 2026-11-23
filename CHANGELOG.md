@@ -649,6 +649,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clippy-flagged constructs found in our own code; if SDK-internal warnings
   surface they can be re-added with a `// reason:` comment (#297).
 
+### Added — 2026-10-16
+
+- contracts/vesting/src/lib.rs: `is_admin(env, address) -> bool` (#221).
+  Pure-read predicate that returns `true` when `address` equals the stored
+  admin. No write footprint; reads instance storage and compares. Matches the
+  `is_owner()` pattern in the multisig contract, eliminating the need for
+  callers to call `get_admin()` and compare addresses manually. Two new unit
+  tests: `test_is_admin_true_for_admin` and `test_is_admin_false_for_non_admin`.
+  `contracts/vesting/README.md` updated with the new function reference entry.
+
 ### Added — 2026-10-17
 
 - contracts/vesting: `is_admin(env, address: Address) -> bool` (#221). Pure

@@ -696,10 +696,6 @@ impl VestingContract {
         Self::get_admin_address(&env)
     }
 
-    pub fn is_paused(env: Env) -> bool {
-        env.storage().instance().get(&PAUSED).unwrap_or(false)
-    }
-
     /// Return `true` if `address` is the current admin, `false` otherwise.
     ///
     /// Read-only — does not extend TTL or write any storage.
@@ -710,6 +706,10 @@ impl VestingContract {
             .get(&ADMIN)
             .expect("not initialized");
         admin == address
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
     pub fn schedule_count(env: Env) -> u64 {

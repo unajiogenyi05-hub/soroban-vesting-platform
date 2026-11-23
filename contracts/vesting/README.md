@@ -252,6 +252,15 @@ Returns the current admin address. Read-only; does not extend TTL.
 
 ---
 
+### `is_admin(env, address: Address) -> bool`
+
+Returns `true` if `address` is the current admin, `false` otherwise.
+Read-only; does not extend TTL.
+
+**Panics:** `"not initialized"` — contract was never constructed (should not occur in practice)
+
+---
+
 ### `is_paused(env) -> bool`
 
 Returns `true` if the contract is paused. Read-only; does not extend TTL.
