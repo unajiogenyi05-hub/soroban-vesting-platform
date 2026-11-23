@@ -253,7 +253,13 @@ impl VestingContract {
 
         env.events().publish(
             (EVT_CLAIMED,),
-            (schedule_id, schedule.beneficiary, claimable),
+            (
+                schedule_id,
+                schedule.beneficiary,
+                claimable,
+                schedule.claimed_amount,
+                schedule.total_amount,
+            ),
         );
 
         claimable
@@ -2552,6 +2558,7 @@ mod tests {
 
     #[test]
     fn test_event_claimed() {
+        use soroban_sdk::IntoVal;
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
         let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
@@ -2569,13 +2576,29 @@ mod tests {
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         vesting.claim(&id);
 
-        let found = !env
-            .events()
-            .all()
-            .filter_by_contract(&vesting_id)
-            .events()
-            .is_empty();
-        assert!(found, "expected 'claimed' event");
+        // The "claimed" event must include five fields so that off-chain
+        // indexers can compute remaining unvested without an extra RPC call:
+        //   (schedule_id, beneficiary, claimable, claimed_amount, total_amount)
+        // After claiming 50 000 of 100 000, claimed_amount == 50 000.
+        assert_eq!(
+            env.events().all().filter_by_contract(&vesting_id),
+            soroban_sdk::vec![
+                &env,
+                (
+                    vesting_id.clone(),
+                    (symbol_short!("claimed"),).into_val(&env),
+                    (
+                        id,
+                        beneficiary.clone(),
+                        50_000i128, // claimable
+                        50_000i128, // claimed_amount after this claim
+                        100_000i128 // total_amount
+                    )
+                        .into_val(&env),
+                )
+            ],
+            "expected 'claimed' event with (schedule_id, beneficiary, claimable, claimed_amount, total_amount)"
+        );
     }
 
     // ── events: revoke emits "revoked" ────────────────────────────────────────
