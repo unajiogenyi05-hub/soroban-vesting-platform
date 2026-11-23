@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- contracts/vesting/src/lib.rs: `get_active_schedule_count(env) -> u64` (#222).
+  Returns the count of schedules with `status == Active` by scanning IDs
+  `1..=schedule_count()`. Documented as O(n); no write footprint (no TTL bump).
+  Closes the gap where `schedule_count()` returned the total ever created
+  (including revoked/completed), forcing dashboards to filter client-side.
+### Tests
+- contracts/vesting/src/lib.rs: `test_active_schedule_count_empty` and
+  `test_active_schedule_count_mixed_statuses` (#222). Cover: zero schedules,
+  correct count after three creates, decrement after a revoke, and decrement
+  after a completed full claim. Also asserts that `schedule_count()` (total
+  ever created) is unaffected by status changes.
+### Added
 - scripts/deploy-multisig.sh: standalone script to deploy the multisig
   contract to any Stellar network with configurable `OWNERS` (JSON array),
   `THRESHOLD`, `SOURCE_ACCOUNT`, `NETWORK`, and `SKIP_BUILD` environment

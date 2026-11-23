@@ -1935,7 +1935,11 @@ mod tests {
         submit_n_proposals(&ms, &env, &o1, &stub_id, 5);
 
         let page = ms.get_proposals_paginated(&3u64, &3u64);
-        assert_eq!(page.len(), 2, "second page should have 2 entries (clipped at total)");
+        assert_eq!(
+            page.len(),
+            2,
+            "second page should have 2 entries (clipped at total)"
+        );
         assert_eq!(page.get(0).unwrap().id, 4u64);
         assert_eq!(page.get(1).unwrap().id, 5u64);
     }
@@ -2033,20 +2037,17 @@ mod prop_tests {
 
             // Build owner list.
             let mut owners: Vec<Address> = Vec::new(&env);
-            let mut owner_vec: std::vec::Vec<Address> = std::vec::Vec::new();
             for _ in 0..n_owners {
-                let o = Address::generate(&env);
-                owners.push_back(o.clone());
-                owner_vec.push(o);
+                owners.push_back(Address::generate(&env));
             }
 
             // threshold = 1 so we can confirm without immediately being forced
             // to execute; we only care about confirmation_count here.
-            let contract_id = env.register(MultisigContract, (owners, 1u32));
+            let contract_id = env.register(MultisigContract, (owners.clone(), 1u32));
             let ms = MultisigContractClient::new(&env, &contract_id);
 
             // Submit a proposal from the first owner.
-            let proposer = owner_vec[0].clone();
+            let proposer = owners.get(0).unwrap();
             let proposal_id = ms.submit(
                 &proposer,
                 &ProposalAction::AddOwner(Address::generate(&env)),
@@ -2055,9 +2056,9 @@ mod prop_tests {
 
             // Confirm with the subset selected by confirm_mask.
             let mut expected_count: u32 = 0;
-            for (i, owner) in owner_vec.iter().enumerate() {
+            for (i, owner) in owners.iter().enumerate() {
                 if i < n_owners && (confirm_mask >> i) & 1 == 1 {
-                    ms.confirm(owner, &proposal_id);
+                    ms.confirm(&owner, &proposal_id);
                     expected_count += 1;
                 }
             }
@@ -2068,12 +2069,14 @@ mod prop_tests {
             // Invariant: count matches how many owners confirmed.
             prop_assert_eq!(
                 actual_count, expected_count,
-                "confirmation_count={actual_count} != expected={expected_count}"
+                "confirmation_count={} != expected={}",
+                actual_count, expected_count
             );
             // Invariant: count never exceeds owner count.
             prop_assert!(
                 actual_count <= n_owners as u32,
-                "confirmation_count={actual_count} > n_owners={n_owners}"
+                "confirmation_count={} > n_owners={}",
+                actual_count, n_owners
             );
         }
     }
