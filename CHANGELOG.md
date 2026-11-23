@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — 2026-10-17
+
+- contracts/vesting: `is_claimable(env, schedule_id: u64) -> bool` (#219). Pure
+  read-only predicate that returns `true` when there are vested-but-unclaimed
+  tokens for the schedule at the current ledger timestamp. Returns `false` for
+  Revoked/Completed schedules or before the cliff. No write footprint. New
+  tests: `test_is_claimable_before_cliff_false`, `test_is_claimable_after_cliff_true`,
+  `test_is_claimable_false_after_revoke`.
+
 ### Added — 2026-10-16
 
 - contracts/vesting/README.md: "Rounding behavior" section (#96). Documents

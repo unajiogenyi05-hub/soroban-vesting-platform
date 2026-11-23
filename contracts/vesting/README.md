@@ -169,6 +169,18 @@ Returns `true` if the contract is paused. Read-only; does not extend TTL.
 
 ---
 
+### `is_claimable(env, schedule_id: u64) -> bool`
+
+Returns `true` if there are vested-but-unclaimed tokens for `schedule_id` at
+the current ledger timestamp. Returns `false` if the schedule is `Revoked` or
+`Completed`, or if the cliff has not yet passed.
+
+Read-only; does not extend TTL.
+
+**Panics:** `"schedule not found"` — schedule ID does not exist.
+
+---
+
 ### `schedule_count(env) -> u64`
 
 Returns the total number of schedules created (the last assigned ID).

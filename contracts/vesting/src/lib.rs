@@ -362,6 +362,26 @@ impl VestingContract {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
 
+    /// Return `true` if there are vested-but-unclaimed tokens for the given
+    /// schedule at the current ledger timestamp, `false` otherwise.
+    ///
+    /// Returns `false` if the schedule is not `Active` (Revoked or Completed).
+    /// Read-only — does not extend TTL or write any storage.
+    ///
+    /// **Panics:** `"schedule not found"` — schedule ID does not exist.
+    pub fn is_claimable(env: Env, schedule_id: u64) -> bool {
+        let schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+        if schedule.status != ScheduleStatus::Active {
+            return false;
+        }
+        let now = env.ledger().timestamp();
+        Self::vested_amount(&schedule, now) > schedule.claimed_amount
+    }
+
     pub fn schedule_count(env: Env) -> u64 {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
@@ -1859,6 +1879,81 @@ mod tests {
             cliff_duration: u64::MAX - 1,
             total_duration: u64::MAX - 1,
         });
+    }
+
+    // ── is_claimable ──────────────────────────────────────────────────────────
+
+    /// is_claimable() returns false before the cliff, true after the cliff,
+    /// and false after the schedule is revoked.
+    #[test]
+    fn test_is_claimable_before_cliff_false() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 50,
+            total_duration: 100,
+        });
+
+        // Before cliff: nothing vested yet
+        env.ledger().with_mut(|l| l.timestamp = start + 30);
+        assert!(!vesting.is_claimable(&id), "should be false before cliff");
+    }
+
+    #[test]
+    fn test_is_claimable_after_cliff_true() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 50,
+            total_duration: 100,
+        });
+
+        // After cliff: vested > claimed (0)
+        env.ledger().with_mut(|l| l.timestamp = start + 60);
+        assert!(
+            vesting.is_claimable(&id),
+            "should be true after cliff when tokens have vested"
+        );
+    }
+
+    #[test]
+    fn test_is_claimable_false_after_revoke() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder.clone(),
+            beneficiary: beneficiary.clone(),
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        vesting.revoke(&id, &admin);
+
+        // After revoke: status is Revoked, is_claimable must return false
+        assert!(!vesting.is_claimable(&id), "should be false after revoke");
     }
 }
 
