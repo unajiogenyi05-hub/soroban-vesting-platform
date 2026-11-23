@@ -252,21 +252,27 @@ Returns the current admin address. Read-only; does not extend TTL.
 
 ---
 
+### `is_admin(env, address: Address) -> bool`
+
+Returns `true` if `address` is the current admin, `false` otherwise.
+Read-only; does not extend TTL.
+
+**Panics:** `"not initialized"` — contract was never constructed (should not occur in practice)
+
+---
+
 ### `is_paused(env) -> bool`
 
 Returns `true` if the contract is paused. Read-only; does not extend TTL.
 
 ---
 
-### `is_claimable(env, schedule_id: u64) -> bool`
+### `is_admin(env, address: Address) -> bool`
 
-Returns `true` if there are vested-but-unclaimed tokens for `schedule_id` at
-the current ledger timestamp. Returns `false` if the schedule is `Revoked` or
-`Completed`, or if the cliff has not yet passed.
-
+Returns `true` if `address` is the current admin, `false` otherwise.
 Read-only; does not extend TTL.
 
-**Panics:** `"schedule not found"` — schedule ID does not exist.
+**Panics:** `"not initialized"` — contract was never initialized.
 
 ---
 

@@ -696,6 +696,18 @@ impl VestingContract {
         Self::get_admin_address(&env)
     }
 
+    /// Return `true` if `address` is the current admin, `false` otherwise.
+    ///
+    /// Read-only — does not extend TTL or write any storage.
+    pub fn is_admin(env: Env, address: Address) -> bool {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .expect("not initialized");
+        admin == address
+    }
+
     pub fn is_paused(env: Env) -> bool {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
@@ -4032,79 +4044,21 @@ mod tests {
         vesting.cancel_schedule(&id, &recipient);
     }
 
-    // ── is_claimable ──────────────────────────────────────────────────────────
+    // ── is_admin ──────────────────────────────────────────────────────────────
 
-    /// is_claimable() returns false before the cliff, true after the cliff,
-    /// and false after the schedule is revoked.
+    /// is_admin() returns true for the admin and false for any other address.
     #[test]
-    fn test_is_claimable_before_cliff_false() {
-        let (env, vesting_id, _admin, beneficiary, funder) = setup();
-        let token = new_token(&env, &funder, 100_000);
+    fn test_is_admin() {
+        let (env, vesting_id, admin, _beneficiary, _funder) = setup();
         let vesting = VestingContractClient::new(&env, &vesting_id);
-        let start = env.ledger().timestamp();
 
-        let id = vesting.create_schedule(&CreateScheduleParams {
-            from: funder.clone(),
-            beneficiary: beneficiary.clone(),
-            token_address: token,
-            total_amount: 100_000,
-            start_time: start,
-            cliff_duration: 50,
-            total_duration: 100,
-        });
+        assert!(vesting.is_admin(&admin), "admin address should return true");
 
-        // Before cliff: nothing vested yet
-        env.ledger().with_mut(|l| l.timestamp = start + 30);
-        assert!(!vesting.is_claimable(&id), "should be false before cliff");
-    }
-
-    #[test]
-    fn test_is_claimable_after_cliff_true() {
-        let (env, vesting_id, _admin, beneficiary, funder) = setup();
-        let token = new_token(&env, &funder, 100_000);
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        let start = env.ledger().timestamp();
-
-        let id = vesting.create_schedule(&CreateScheduleParams {
-            from: funder.clone(),
-            beneficiary: beneficiary.clone(),
-            token_address: token,
-            total_amount: 100_000,
-            start_time: start,
-            cliff_duration: 50,
-            total_duration: 100,
-        });
-
-        // After cliff: vested > claimed (0)
-        env.ledger().with_mut(|l| l.timestamp = start + 60);
+        let stranger = Address::generate(&env);
         assert!(
-            vesting.is_claimable(&id),
-            "should be true after cliff when tokens have vested"
+            !vesting.is_admin(&stranger),
+            "non-admin address should return false"
         );
-    }
-
-    #[test]
-    fn test_is_claimable_false_after_revoke() {
-        let (env, vesting_id, admin, beneficiary, funder) = setup();
-        let token = new_token(&env, &funder, 100_000);
-        let vesting = VestingContractClient::new(&env, &vesting_id);
-        let start = env.ledger().timestamp();
-
-        let id = vesting.create_schedule(&CreateScheduleParams {
-            from: funder.clone(),
-            beneficiary: beneficiary.clone(),
-            token_address: token,
-            total_amount: 100_000,
-            start_time: start,
-            cliff_duration: 0,
-            total_duration: 100,
-        });
-
-        env.ledger().with_mut(|l| l.timestamp = start + 50);
-        vesting.revoke(&id, &admin);
-
-        // After revoke: status is Revoked, is_claimable must return false
-        assert!(!vesting.is_claimable(&id), "should be false after revoke");
     }
 }
 

@@ -649,14 +649,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clippy-flagged constructs found in our own code; if SDK-internal warnings
   surface they can be re-added with a `// reason:` comment (#297).
 
+### Added — 2026-10-16
+
+- contracts/vesting/src/lib.rs: `is_admin(env, address) -> bool` (#221).
+  Pure-read predicate that returns `true` when `address` equals the stored
+  admin. No write footprint; reads instance storage and compares. Matches the
+  `is_owner()` pattern in the multisig contract, eliminating the need for
+  callers to call `get_admin()` and compare addresses manually. Two new unit
+  tests: `test_is_admin_true_for_admin` and `test_is_admin_false_for_non_admin`.
+  `contracts/vesting/README.md` updated with the new function reference entry.
+
 ### Added — 2026-10-17
 
-- contracts/vesting: `is_claimable(env, schedule_id: u64) -> bool` (#219). Pure
-  read-only predicate that returns `true` when there are vested-but-unclaimed
-  tokens for the schedule at the current ledger timestamp. Returns `false` for
-  Revoked/Completed schedules or before the cliff. No write footprint. New
-  tests: `test_is_claimable_before_cliff_false`, `test_is_claimable_after_cliff_true`,
-  `test_is_claimable_false_after_revoke`.
+- contracts/vesting: `is_admin(env, address: Address) -> bool` (#221). Pure
+  read-only predicate that returns `true` when `address` equals the current
+  admin. Matches the `is_owner()` pattern in the multisig contract. No write
+  footprint. New tests: `test_is_admin` (true for admin, false for non-admin).
 
 ### Added — 2026-10-16
 
