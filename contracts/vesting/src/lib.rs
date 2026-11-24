@@ -160,6 +160,19 @@ impl VestingContract {
     /// `initialize` step.  Because the constructor runs atomically with
     /// deployment the front-running window that existed with a two-step
     /// initialize() is eliminated.
+    ///
+    /// Initializes the `PAUSED` flag to `false` and the schedule counter
+    /// (`SCHED_ID`) to `0`, and extends the instance TTL so the freshly
+    /// written admin/paused/counter keys are kept alive.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `admin` — address that will own the contract (create/revoke/pause and
+    ///   may call [`Self::transfer_admin`] to hand over control later).
+    ///
+    /// # Panics
+    /// Panics only if the underlying host/storage call fails; no validation is
+    /// performed on `admin` (it is trusted at deploy time).
     pub fn __constructor(env: Env, admin: Address) {
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&PAUSED, &false);
@@ -169,7 +182,34 @@ impl VestingContract {
 
     // ── Schedule management ──────────────────────────────────────────────────
 
-    /// Create a new vesting schedule. Caller must be admin.
+    /// Create a new vesting schedule.
+    ///
+    /// Pulls `params.total_amount` of `params.token_address` from `params.from`
+    /// into the contract and records a linear vesting schedule for
+    /// `params.beneficiary`. Vesting begins after any cliff and completes at
+    /// `start_time + total_duration`.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `params` — full schedule definition (see [`CreateScheduleParams`]).
+    ///
+    /// # Authorization
+    /// Caller must be the admin (`params.from` is **not** authenticated here;
+    /// only the admin address is).
+    ///
+    /// # Returns
+    /// The newly assigned schedule ID (monotonically increasing from 1).
+    ///
+    /// # Panics
+    /// - [`VestingError::ContractIsPaused`] — the contract is paused.
+    /// - [`VestingError::AmountMustBePositive`] — `total_amount <= 0`.
+    /// - [`VestingError::DurationMustBePositive`] — `total_duration == 0`.
+    /// - [`VestingError::CliffExceedsDuration`] — `cliff_duration > total_duration`.
+    /// - [`VestingError::StartPlusCliffOverflow`] / [`VestingError::StartPlusDurationOverflow`]
+    ///   — `start_time + cliff_duration` / `start_time + total_duration` would overflow `u64`.
+    ///
+    /// # Events
+    /// `("created",)` → `(schedule_id, beneficiary, total_amount, token)`.
     pub fn create_schedule(env: Env, params: CreateScheduleParams) -> u64 {
         Self::bump_instance(&env);
         Self::require_admin(&env);
@@ -206,6 +246,29 @@ impl VestingContract {
     }
 
     /// Claim all currently vested-but-unclaimed tokens for a schedule.
+    ///
+    /// Computes `vested_amount(now) - claimed_amount`, transfers that amount to
+    /// the beneficiary, and advances `claimed_amount`. If the schedule becomes
+    /// fully claimed its status flips to `Completed`.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `schedule_id` — the schedule to claim from.
+    ///
+    /// # Authorization
+    /// The schedule's beneficiary must authorize the call.
+    ///
+    /// # Returns
+    /// The amount of tokens transferred to the beneficiary this call.
+    ///
+    /// # Panics
+    /// - [`VestingError::ScheduleNotFound`] — no schedule with the given ID.
+    /// - `"schedule is not active"` — the schedule is `Revoked` or `Completed`.
+    /// - [`VestingError::NothingToClaim`] — vested minus claimed is `<= 0`.
+    /// - [`VestingError::ContractIsPaused`] — the contract is paused.
+    ///
+    /// # Events
+    /// `("claimed",)` → `(schedule_id, beneficiary, claimable, claimed_amount, total_amount)`.
     pub fn claim(env: Env, schedule_id: u64) -> i128 {
         Self::bump_instance(&env);
         Self::require_not_paused(&env);
@@ -451,12 +514,39 @@ impl VestingContract {
 
     // ── Pause ────────────────────────────────────────────────────────────
 
+    /// Pause the contract, blocking `create_schedule`, `batch_create_schedule`,
+    /// and `claim`.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    ///
+    /// # Authorization
+    /// Caller must be the admin.
+    ///
+    /// # Panics
+    /// Panics if the caller is not the admin.
+    ///
+    /// # Events
+    /// `("paused",)` → `()`.
     pub fn pause(env: Env) {
         Self::require_admin(&env);
         env.storage().instance().set(&PAUSED, &true);
         env.events().publish((EVT_PAUSED,), ());
     }
 
+    /// Resume the contract, re-enabling schedule creation and claims.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    ///
+    /// # Authorization
+    /// Caller must be the admin.
+    ///
+    /// # Panics
+    /// Panics if the caller is not the admin.
+    ///
+    /// # Events
+    /// `("unpaused",)` → `()`.
     pub fn unpause(env: Env) {
         Self::bump_instance(&env);
         Self::require_admin(&env);
@@ -466,6 +556,21 @@ impl VestingContract {
 
     // ── Admin transfer ──────────────────────────────────────────────────────
 
+    /// Transfer admin control to a new address.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `new_admin` — the address that will become the sole admin.
+    ///
+    /// # Authorization
+    /// The current admin **and** `new_admin` must both authorize the call.
+    ///
+    /// # Panics
+    /// - `"not initialized"` — the `ADMIN` key is missing (constructor not run).
+    /// - Panics if either the current admin or `new_admin` does not authorize.
+    ///
+    /// # Events
+    /// `("admXfer",)` → `(old_admin, new_admin)`.
     pub fn transfer_admin(env: Env, new_admin: Address) {
         Self::bump_instance(&env);
         Self::require_admin(&env);
@@ -568,6 +673,19 @@ impl VestingContract {
 
     // ── Read functions ─────────────────────────────────────────────────────
 
+    /// Return the full [`VestingSchedule`] record for `schedule_id`.
+    ///
+    /// Read-only — does not extend any TTL or write storage.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `schedule_id` — the schedule to look up.
+    ///
+    /// # Returns
+    /// A snapshot of the schedule's current state.
+    ///
+    /// # Panics
+    /// - [`VestingError::ScheduleNotFound`] — no schedule with the given ID.
     pub fn get_schedule(env: Env, schedule_id: u64) -> VestingSchedule {
         env.storage()
             .persistent()
@@ -575,6 +693,20 @@ impl VestingContract {
             .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound))
     }
 
+    /// Return how many tokens `schedule_id` can claim right now.
+    ///
+    /// Computes `vested_amount(now) - claimed_amount`, clamped to `0`. Read-only
+    /// — does not extend any TTL or write storage.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `schedule_id` — the schedule to query.
+    ///
+    /// # Returns
+    /// The currently claimable amount (never negative).
+    ///
+    /// # Panics
+    /// - [`VestingError::ScheduleNotFound`] — no schedule with the given ID.
     pub fn get_claimable(env: Env, schedule_id: u64) -> i128 {
         let schedule: VestingSchedule = env
             .storage()
@@ -604,6 +736,17 @@ impl VestingContract {
         (Self::vested_amount(&schedule, timestamp) - schedule.claimed_amount).max(0)
     }
 
+    /// Return the list of schedule IDs that belong to `beneficiary`.
+    ///
+    /// Read-only — does not extend any TTL or write storage.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    /// - `beneficiary` — the address whose schedules to list.
+    ///
+    /// # Returns
+    /// A `Vec<u64>` of schedule IDs in creation order. Empty when the
+    /// beneficiary has no schedules.
     pub fn get_beneficiary_schedules(env: Env, beneficiary: Address) -> Vec<u64> {
         env.storage()
             .persistent()
@@ -671,6 +814,18 @@ impl VestingContract {
         total
     }
 
+    /// Return the current admin address.
+    ///
+    /// Read-only — does not extend any TTL or write storage.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    ///
+    /// # Returns
+    /// The address stored under the `ADMIN` key.
+    ///
+    /// # Panics
+    /// - `"not initialized"` — the `ADMIN` key is missing (constructor not run).
     pub fn get_admin(env: Env) -> Address {
         Self::get_admin_address(&env)
     }
@@ -687,6 +842,16 @@ impl VestingContract {
         admin == address
     }
 
+    /// Return `true` if the contract is currently paused.
+    ///
+    /// Read-only — does not extend TTL or write storage. Defaults to `false`
+    /// if the `PAUSED` key is missing (e.g. before the constructor runs).
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    ///
+    /// # Returns
+    /// `true` when paused, `false` otherwise.
     pub fn is_paused(env: Env) -> bool {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
     }
@@ -711,6 +876,20 @@ impl VestingContract {
         Self::vested_amount(&schedule, now) > schedule.claimed_amount
     }
 
+    /// Return the total number of schedules ever created (the current value of
+    /// the `SCHED_ID` counter).
+    ///
+    /// This includes schedules that have since been revoked, completed, or
+    /// cancelled — use [`Self::get_active_schedule_count`] to count only
+    /// `Active` schedules.
+    ///
+    /// Read-only — does not extend any TTL or write storage.
+    ///
+    /// # Arguments
+    /// - `env` — the Soroban environment.
+    ///
+    /// # Returns
+    /// The number of schedules created so far (0 before any are created).
     pub fn schedule_count(env: Env) -> u64 {
         env.storage().instance().get(&SCHED_ID).unwrap_or(0)
     }
