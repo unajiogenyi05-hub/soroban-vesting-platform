@@ -109,11 +109,13 @@ pub struct CreateScheduleParams {
 
 /// Snapshot of a schedule's vesting state at the current ledger timestamp.
 ///
-/// All five fields are derived from the stored `VestingSchedule` and the
+/// All fields are derived from the stored `VestingSchedule` and the
 /// current ledger time. No write footprint.
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VestingProgress {
+    /// ID of the vesting schedule.
+    pub schedule_id: u64,
     /// Total tokens locked in the schedule.
     pub total_amount: i128,
     /// Tokens that have vested so far (including already claimed).
@@ -715,6 +717,32 @@ impl VestingContract {
             .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
         let now = env.ledger().timestamp();
         (Self::vested_amount(&schedule, now) - schedule.claimed_amount).max(0)
+    }
+
+    /// Return a complete vesting progress snapshot for a schedule.
+    ///
+    /// Read-only — does not bump instance or persistent storage TTL.
+    pub fn get_vesting_progress(env: Env, schedule_id: u64) -> VestingProgress {
+        let schedule: VestingSchedule = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Schedule(schedule_id))
+            .unwrap_or_else(|| panic_with_error!(&env, VestingError::ScheduleNotFound));
+        let now = env.ledger().timestamp();
+        let vested = Self::vested_amount(&schedule, now);
+        let claimed = schedule.claimed_amount;
+        let claimable = (vested - claimed).max(0);
+        let unvested = (schedule.total_amount - vested).max(0);
+
+        VestingProgress {
+            schedule_id,
+            total_amount: schedule.total_amount,
+            vested,
+            claimed,
+            claimable,
+            unvested,
+            status: schedule.status,
+        }
     }
 
     /// Returns the projected claimable amount for a schedule at an arbitrary
@@ -2944,6 +2972,94 @@ mod tests {
         // At cliff: 50_000 vested, 50_000 unvested
         env.ledger().with_mut(|l| l.timestamp = start + 50);
         assert_eq!(vesting.get_unvested_amount(&id), 50_000);
+    }
+
+    #[test]
+    fn test_get_vesting_progress_mid_schedule() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder,
+            beneficiary,
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 40);
+        vesting.claim(&id);
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        let progress = vesting.get_vesting_progress(&id);
+        assert_eq!(progress.schedule_id, id);
+        assert_eq!(progress.total_amount, 100_000);
+        assert_eq!(progress.vested, 50_000);
+        assert_eq!(progress.claimed, 40_000);
+        assert_eq!(progress.claimable, 10_000);
+        assert_eq!(progress.unvested, 50_000);
+        assert_eq!(progress.status, ScheduleStatus::Active);
+    }
+
+    #[test]
+    fn test_get_vesting_progress_at_completion() {
+        let (env, vesting_id, _admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder,
+            beneficiary,
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 100);
+        vesting.claim(&id);
+
+        let progress = vesting.get_vesting_progress(&id);
+        assert_eq!(progress.unvested, 0);
+        assert_eq!(progress.status, ScheduleStatus::Completed);
+        assert_eq!(progress.vested, 100_000);
+        assert_eq!(progress.claimed, 100_000);
+        assert_eq!(progress.claimable, 0);
+    }
+
+    #[test]
+    fn test_get_vesting_progress_revoked() {
+        let (env, vesting_id, admin, beneficiary, funder) = setup();
+        let token = new_token(&env, &funder, 100_000);
+        let vesting = VestingContractClient::new(&env, &vesting_id);
+        let start = env.ledger().timestamp();
+
+        let id = vesting.create_schedule(&CreateScheduleParams {
+            from: funder,
+            beneficiary,
+            token_address: token,
+            total_amount: 100_000,
+            start_time: start,
+            cliff_duration: 0,
+            total_duration: 100,
+        });
+
+        env.ledger().with_mut(|l| l.timestamp = start + 50);
+        env.mock_all_auths();
+        vesting.revoke(&id, &admin);
+
+        let progress = vesting.get_vesting_progress(&id);
+        assert_eq!(progress.status, ScheduleStatus::Revoked);
+        assert_eq!(progress.vested, 50_000);
+        assert_eq!(progress.claimed, 50_000);
+        assert_eq!(progress.claimable, 0);
+        assert_eq!(progress.unvested, 50_000);
     }
 
     /// get_unvested_amount + get_claimable + claimed_amount == total_amount
