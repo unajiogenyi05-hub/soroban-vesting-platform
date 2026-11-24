@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Docs
+- contracts/vesting/src/lib.rs: added full `///` rustdoc to every public
+  contract function that previously had none or only a one-liner
+  (`__constructor`, `create_schedule`, `claim`, `pause`, `unpause`,
+  `transfer_admin`, `get_schedule`, `get_claimable`,
+  `get_beneficiary_schedules`, `get_admin`, `is_paused`, `schedule_count`).
+  Each entry documents arguments, required authorization, panic conditions
+  (e.g. `total_amount <= 0` → `AmountMustBePositive`), return value, and
+  emitted events so `cargo doc` output is usable by SDK consumers.
 ### Fixed
 - backend/src/routes/vesting.test.js: fixed test suite crash caused by the
   ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
