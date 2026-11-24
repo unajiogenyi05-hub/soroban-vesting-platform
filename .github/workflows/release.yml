@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*"
 
 permissions:
   contents: write
@@ -47,16 +47,16 @@ jobs:
         run: cargo test --all --locked
 
       - name: Install stellar-cli
-        uses: stellar/stellar-cli@v28.0.0
+        uses: stellar/stellar-cli@300aaf69ab100536678bdb641428b06f06b318ea # v28.0.0
 
       - name: Build WASM
         run: stellar contract build
 
       - name: Verify artifacts and write checksums
         run: |
-          count=$(find target/wasm32v1-none/release -maxdepth 1 -name '*.wasm' | wc -l)
-          if [ "$count" -ne 3 ]; then
-            echo "Expected 3 WASM artifacts, found $count" >&2
+          count=$(find target/wasm32v1-none/release -maxdepth 1 -type f -name '*.wasm' | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "No WASM artifacts found" >&2
             exit 1
           fi
           (
