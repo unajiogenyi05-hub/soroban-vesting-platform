@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- .github/ISSUE_TEMPLATE: added bug report and feature request templates (#251).
+  Contributors can now choose structured issue forms from the GitHub New issue picker.
+  Linked both templates from CONTRIBUTING.md.
 ### Fixed
 - backend/src/routes/vesting.test.js: fixed test suite crash caused by the
   ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
