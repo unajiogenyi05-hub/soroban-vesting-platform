@@ -221,6 +221,20 @@ that walks through:
 
 ---
 
+## DAO integration guide
+
+See [docs/integration-guide.md](docs/integration-guide.md) for the
+step-by-step DAO and treasury integration design, including:
+
+1. Deploying with a multisig as vesting admin
+2. Choosing an N-of-M owner threshold
+3. Creating schedules through governance proposals
+4. Polling `get_claimable` and maintaining contract TTL
+5. Revoking schedules through admin governance
+6. Migrating vesting admin authority safely
+
+---
+
 ## Events
 
 See [docs/events.md](docs/events.md) for every event the contracts publish,
