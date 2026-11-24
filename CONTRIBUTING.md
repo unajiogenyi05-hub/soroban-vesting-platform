@@ -310,4 +310,9 @@ https://github.com/unajiogenyi05-hub/soroban-vesting-platform/security
 
 ## Reporting Issues
 
-Use the GitHub Issue tracker. Check existing issues before opening a new one. For security vulnerabilities, see [SECURITY.md](SECURITY.md).
+Use the GitHub Issue tracker. Check existing issues before opening a new one.
+
+- For reproducible bugs, use the [Bug report template](.github/ISSUE_TEMPLATE/bug_report.md).
+- For new capabilities or improvements, use the [Feature request template](.github/ISSUE_TEMPLATE/feature_request.md).
+
+For security vulnerabilities, see [SECURITY.md](SECURITY.md).
