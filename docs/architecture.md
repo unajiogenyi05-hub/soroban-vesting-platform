@@ -62,6 +62,31 @@ stellar contract deploy --wasm multisig.wasm --source admin --network testnet \
 2. **Vesting → Token**: `claim` and `revoke` call `token.transfer` to release funds.
 3. **Multisig → Any**: `execute()` dispatches the proposal action. `ProposalAction::Call` makes a real cross-contract call via `env.invoke_contract` to any target contract. `ProposalAction::AddOwner`, `RemoveOwner`, and `UpdateThreshold` are handled internally inside `execute()` — no cross-contract call is made for these variants. There are no public `add_owner`, `remove_owner`, or `update_threshold` entry points; every change to the owner set must go through a fully-confirmed proposal.
 
+### Multisig-admin `create_schedule` flow
+
+When the vesting contract is configured with the multisig contract as its admin,
+schedule creation follows this call sequence:
+
+```mermaid
+sequenceDiagram
+    participant Owner
+    participant Multisig
+    participant Vesting
+    participant Token
+
+    Owner->>Multisig: submit(ProposalAction::Call(create_schedule))
+    Note over Multisig: Proposal reaches the configured confirmation threshold
+    Owner->>Multisig: confirm(proposal_id)
+    Anyone->>Multisig: execute(proposal_id)
+    Multisig->>Vesting: create_schedule(params)
+    Vesting->>Token: transfer(from, vesting, amount)
+```
+
+An owner submits the proposal, owners confirm it until the configured threshold
+is reached, and any account can execute the proposal. Execution dispatches the
+call from the multisig contract to vesting, and vesting transfers the full
+schedule amount from the funder to the vesting contract.
+
 ## Signing model
 
 The backend does **not** hold private keys and does not submit transactions on-chain. It performs Soroban RPC simulations and returns unsigned XDR or stub responses. On-chain operations (create_schedule, claim, revoke, pause, etc.) must be signed and submitted by the caller using stellar-cli or a client-side wallet.
