@@ -206,6 +206,7 @@ ci: add cargo audit to pipeline
 ### PR checklist
 Before opening a PR, confirm:
 
+- [ ] The [pull request template](.github/PULL_REQUEST_TEMPLATE.md) is complete
 - [ ] `cargo test --all` passes with zero failures
 - [ ] `cargo clippy --all --target wasm32v1-none -- -D warnings` passes
 - [ ] `cargo fmt --all -- --check` passes
