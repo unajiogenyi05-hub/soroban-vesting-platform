@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- `docs/architecture.md`: added a Mermaid sequence diagram documenting the
+  multisig-as-admin `create_schedule` proposal, confirmation, execution,
+  vesting call, and token transfer flow (#253).
 ### Fixed
 - backend/src/routes/vesting.test.js: fixed test suite crash caused by the
   ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
