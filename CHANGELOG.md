@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- .github/PULL_REQUEST_TEMPLATE.md: added a structured pull request template
+  covering the summary, related issue, change type, testing, and contributor
+  checklist (#252). Linked the template from CONTRIBUTING.md.
 - contracts/vesting/src/lib.rs: documented that `get_claimable()` returns `0`
   for both `Completed` and `Revoked` schedules, and added explicit tests for
   both states (#223).
