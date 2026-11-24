@@ -6,13 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Added
-- contracts/vesting/src/lib.rs: documented that `get_claimable()` returns `0`
-  for both `Completed` and `Revoked` schedules, and added explicit tests for
-  both states (#223).
-- .github/ISSUE_TEMPLATE: added bug report and feature request templates (#251).
-  Contributors can now choose structured issue forms from the GitHub New issue picker.
-  Linked both templates from CONTRIBUTING.md.
+### Changed
+- contracts/multisig/src/lib.rs: added `///` API documentation to every public
+  function, including parameters, authorization requirements, panics, and
+  return values. The `execute()` documentation now explicitly describes its
+  permissionless semantics and threshold-only authorization (#258).
 ### Fixed
 - backend/src/routes/vesting.test.js: fixed test suite crash caused by the
   ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
