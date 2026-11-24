@@ -215,6 +215,20 @@ Returns 0 if nothing is claimable. Read-only; does not extend TTL.
 
 ---
 
+### `get_vesting_progress(env, schedule_id: u64) -> VestingProgress`
+
+Returns a complete progress snapshot in one read-only call:
+`schedule_id`, `total_amount`, `vested`, `claimed`, `claimable`,
+`unvested`, and `status`.
+
+`claimable` is `vested - claimed`, clamped to zero, and `unvested` is
+`total_amount - vested`, clamped to zero. Read-only; does not bump instance
+or persistent storage TTL.
+
+**Panics:** `VestingError::ScheduleNotFound` (6)
+
+---
+
 ### `get_claimable_at(env, schedule_id: u64, timestamp: u64) -> i128`
 
 Returns the projected claimable amount for a schedule at an arbitrary
