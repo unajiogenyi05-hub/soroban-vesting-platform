@@ -3644,13 +3644,13 @@ mod tests {
         });
     }
 
-    // ── Issue #61: get_claimable() returns 0 for Completed schedules ─────────
+    // ── Issue #223: get_claimable() returns 0 for Completed schedules ───────
     //
     // After fully claiming all tokens the schedule transitions to Completed.
     // get_claimable() should resolve to (total_amount - total_amount).max(0) == 0.
 
     #[test]
-    fn test_get_claimable_on_completed_schedule() {
+    fn test_get_claimable_on_completed_returns_zero() {
         let (env, vesting_id, _admin, beneficiary, funder) = setup();
         let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);
@@ -3681,7 +3681,7 @@ mod tests {
         assert_eq!(vesting.get_claimable(&id), 0);
     }
 
-    // ── Issue #61: get_claimable() returns 0 for Revoked schedules ───────────
+    // ── Issue #223: get_claimable() returns 0 for Revoked schedules ─────────
     //
     // After revoke() the vested-but-unclaimed portion is paid to the
     // beneficiary and claimed_amount is set to vested_amount.  The unvested
@@ -3689,7 +3689,7 @@ mod tests {
     // so get_claimable() must return 0.
 
     #[test]
-    fn test_get_claimable_on_revoked_schedule() {
+    fn test_get_claimable_on_revoked_returns_zero() {
         let (env, vesting_id, admin, beneficiary, funder) = setup();
         let token = new_token(&env, &funder, 100_000);
         let vesting = VestingContractClient::new(&env, &vesting_id);

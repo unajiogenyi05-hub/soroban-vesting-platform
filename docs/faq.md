@@ -288,8 +288,8 @@ The implementation does not branch on `schedule.status`; it computes:
 - **Revoked:** `revoke()` sets `claimed_amount = vested_amount` before
   transferring tokens, so `vested_amount - claimed_amount == 0`.
 
-Both paths are tested in `test_get_claimable_on_completed_schedule` and
-`test_get_claimable_on_revoked_schedule` in `contracts/vesting/src/lib.rs`.
+Both paths are tested in `test_get_claimable_on_completed_returns_zero` and
+`test_get_claimable_on_revoked_returns_zero` in `contracts/vesting/src/lib.rs`.
 
 ---
 
