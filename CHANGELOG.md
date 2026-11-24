@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- contracts/vesting/src/lib.rs: documented that `get_claimable()` returns `0`
+  for both `Completed` and `Revoked` schedules, and added explicit tests for
+  both states (#223).
 - .github/ISSUE_TEMPLATE: added bug report and feature request templates (#251).
   Contributors can now choose structured issue forms from the GitHub New issue picker.
   Linked both templates from CONTRIBUTING.md.

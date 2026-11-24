@@ -209,7 +209,11 @@ Returns the full schedule struct. Read-only; does not extend TTL.
 ### `get_claimable(env, schedule_id: u64) -> i128`
 
 Returns the vested-but-unclaimed amount at the current ledger timestamp.
-Returns 0 if nothing is claimable. Read-only; does not extend TTL.
+Returns 0 if nothing is claimable. This includes `Completed` schedules
+(all tokens have been claimed) and `Revoked` schedules (revoke has already
+settled the vested amount). Callers should check `get_schedule().status`
+when they need to distinguish those states from an active, not-yet-vested
+schedule. Read-only; does not extend TTL.
 
 **Panics:** `VestingError::ScheduleNotFound` (6)
 
