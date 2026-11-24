@@ -6,12 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-### Added
-- docs/integration-guide.md: DAO and protocol-treasury integration guide
-  covering multisig deployment and threshold selection, proposal-based schedule
-  creation, claimable-amount monitoring and TTL keep-alives, revocation, and
-  admin migration (#249). Linked from README.md.
-
+### Changed
+- contracts/multisig/src/lib.rs: added `///` API documentation to every public
+  function, including parameters, authorization requirements, panics, and
+  return values. The `execute()` documentation now explicitly describes its
+  permissionless semantics and threshold-only authorization (#258).
 ### Fixed
 - backend/src/routes/vesting.test.js: fixed test suite crash caused by the
   ESM-only `uint8array-extras` transitive dependency of `@stellar/stellar-sdk`
