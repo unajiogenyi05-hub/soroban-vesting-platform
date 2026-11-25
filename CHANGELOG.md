@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- `README.md`: added a **Backend configuration reference** section under `## Backend API`
+  documenting all 12 environment variables in `.env.example` (type, default, and runtime effect
+  across `backend/src/index.js`, `backend/src/logger.js`, `backend/src/routes/*`, and
+  `backend/src/services/stellar.js`) (#256).
 ### Changed
 - contracts/multisig/src/lib.rs: added `///` API documentation to every public
   function, including parameters, authorization requirements, panics, and
