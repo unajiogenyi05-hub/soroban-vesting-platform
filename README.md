@@ -573,6 +573,51 @@ For the contract upgrade and state migration guide see
 
 ---
 
+## Glossary
+
+- **Cliff period** — An initial waiting window (`cliff_duration` after
+  `start_time`) during which zero tokens unlock or can be claimed. Once the
+  cliff expires, the proportion accrued since `start_time` unlocks immediately
+  and the remainder vests linearly over `total_duration`.
+- **Linear vesting** — A continuous release schedule where tokens unlock in
+  proportion to elapsed time (`elapsed * total_amount / total_duration`, using
+  integer floor division) from `start_time` until `start_time + total_duration`.
+  Any fractional rounding remainder ("dust") stays locked until
+  `total_duration` elapses, when 100% of `total_amount` unlocks.
+- **Vesting schedule** — An on-chain record locking `total_amount` of a
+  SEP-0041 token for a beneficiary under fixed `start_time`, `cliff_duration`,
+  and `total_duration` parameters. Each schedule tracks a `ScheduleStatus`:
+  `Active` (in progress), `Completed` (fully claimed), `Revoked` (terminated
+  early by the admin after `start_time`, paying vested-unclaimed tokens to the
+  beneficiary and returning unvested tokens), or `Cancelled` (aborted by the
+  admin before `start_time` with a full refund).
+- **Multisig threshold (N-of-M)** — The minimum number of owner confirmations
+  (`N`, `threshold`) out of the total registered multisig owners (`M`,
+  `owners`) required before a governance proposal can be executed via
+  `execute()`. Configuring an N-of-M multisig as the vesting or token admin
+  prevents any single key from creating schedules, minting tokens, or revoking
+  grants unilaterally.
+- **Unvested / vested / claimable** — At any ledger timestamp, **vested** is
+  the cumulative token amount unlocked so far (including amounts already
+  withdrawn), **claimable** is the unlocked balance not yet withdrawn
+  (`vested - claimed_amount`) that the beneficiary can collect via `claim()`,
+  and **unvested** is the still-locked remainder (`total_amount - vested`)
+  returned to the admin-specified recipient on `revoke()`.
+- **TTL (time-to-live)** — In Soroban, the number of ledgers (~5 seconds each)
+  a contract instance or persistent storage entry remains live before being
+  archived into cold state. These contracts bump TTL to ~180 days (`3,110,400`
+  ledgers) whenever remaining life drops below ~30 days (`518,400` ledgers) and
+  expose a permissionless `extend_ttl()` keep-alive entry point (see
+  [docs/ttl.md](docs/ttl.md)).
+- **CEI pattern (Checks-Effects-Interactions)** — A smart-contract safety
+  ordering that validates preconditions and authorization first (*checks*),
+  persists updated storage state second (*effects*), and performs external
+  token transfers last (*interactions*). Applying CEI in `claim()`, `revoke()`,
+  and `cancel_schedule()` prevents inconsistent state across cross-contract
+  calls (see [docs/security-model.md](docs/security-model.md)).
+
+---
+
 ## License
 
 MIT

@@ -7,10 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
-- `README.md`: added a **Backend configuration reference** section under `## Backend API`
-  documenting all 12 environment variables in `.env.example` (type, default, and runtime effect
-  across `backend/src/index.js`, `backend/src/logger.js`, `backend/src/routes/*`, and
-  `backend/src/services/stellar.js`) (#256).
+- README.md: added a `## Glossary` section defining cliff period, linear
+  vesting, vesting schedule statuses (`Active`, `Completed`, `Revoked`,
+  `Cancelled`), multisig threshold (N-of-M), unvested / vested / claimable
+  balances, Soroban storage TTL, and the CEI pattern (#255).
 ### Changed
 - contracts/multisig/src/lib.rs: added `///` API documentation to every public
   function, including parameters, authorization requirements, panics, and
