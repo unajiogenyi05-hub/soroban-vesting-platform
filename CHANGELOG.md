@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- README.md: added a `## Glossary` section defining cliff period, linear
+  vesting, vesting schedule statuses (`Active`, `Completed`, `Revoked`,
+  `Cancelled`), multisig threshold (N-of-M), unvested / vested / claimable
+  balances, Soroban storage TTL, and the CEI pattern (#255).
 ### Changed
 - contracts/multisig/src/lib.rs: added `///` API documentation to every public
   function, including parameters, authorization requirements, panics, and
