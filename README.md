@@ -521,6 +521,25 @@ SOURCE_SECRET_KEY=<Stellar secret key for transaction signing>
 Without these values the API returns documented stub responses so the frontend
 can be developed independently of a live deployment.
 
+### Backend configuration reference
+
+Every variable defined in [`.env.example`](.env.example) is listed below along with its type, runtime default, and effect across `backend/src/index.js`, `backend/src/logger.js`, `backend/src/routes/*`, and `backend/src/services/stellar.js`.
+
+| Variable | Type | Default | Effect |
+|---|---|---|---|
+| `STELLAR_NETWORK` | string (`testnet` \| `mainnet` \| `futurenet`) | `"testnet"` | Selects the Soroban network passphrase in `backend/src/services/stellar.js` (`Networks.PUBLIC` when `"mainnet"`, otherwise `Networks.TESTNET`) and sets the `network` field returned by `GET /api/health`. |
+| `STELLAR_RPC_URL` | string (URL) | `"https://soroban-testnet.stellar.org"` | Configures the Soroban JSON-RPC endpoint used by `backend/src/services/stellar.js` (`getServer()`); automatically permits unencrypted HTTP when set to an `http://` URL. |
+| `STELLAR_NETWORK_PASSPHRASE` | string | `"Test SDF Network ; September 2015"` | Declared in `.env.example` for CLI/deployment tooling context; note that `backend/src/services/stellar.js` derives `NETWORK_PASSPHRASE` at runtime from `STELLAR_NETWORK`. |
+| `ADMIN_SECRET_KEY` | string (Stellar `S…` key) | `""` (`your_secret_key_here` in `.env.example`) | Admin signing key used by deployment scripts (`make deploy-testnet`); not read by the Express API server. |
+| `ADMIN_PUBLIC_KEY` | string (Stellar `G…` address) | `""` (`your_public_key_here` in `.env.example`) | Admin public key used by deployment scripts (`make deploy-testnet`); not read by the Express API server. |
+| `TOKEN_CONTRACT_ID` | string (Soroban `C…` ID) | `""` | Enables live Soroban token contract queries in `backend/src/routes/token.js` and sets `contracts.token` in `GET /api/health/ready`; falls back to documented stub responses when unset. |
+| `VESTING_CONTRACT_ID` | string (Soroban `C…` ID) | `""` | Enables live Soroban vesting contract queries in `backend/src/routes/vesting.js` and sets `contracts.vesting` in `GET /api/health/ready`; falls back to documented stub responses when unset. |
+| `MULTISIG_CONTRACT_ID` | string (Soroban `C…` ID) | `""` | Enables live Soroban multisig contract queries in `backend/src/routes/multisig.js` and sets `contracts.multisig` in `GET /api/health/ready`; falls back to documented stub responses when unset. |
+| `SOURCE_SECRET_KEY` | string (Stellar `S…` key) | `""` | Signing/simulation source key read by `backend/src/routes/token.js` and `backend/src/routes/vesting.js` when simulating live contract reads; routes return stub data when omitted. |
+| `PORT` | number \| string | `3001` | HTTP port bound by the Express server in `backend/src/index.js`. |
+| `CORS_ORIGIN` | string | `"*"` in runtime (`http://localhost:3000` in `.env.example`) | Configures the allowed `origin` passed to `cors()` in `backend/src/index.js` for browser requests. |
+| `LOG_LEVEL` | string (`error` \| `warn` \| `info` \| `debug`) | `"info"` | Sets the minimum severity threshold on the Winston console logger in `backend/src/logger.js`. |
+
 Full endpoint reference — request bodies, query params, response shapes, and
 error codes for every route — is in [docs/api.md](docs/api.md).
 
